@@ -2,3 +2,6 @@
 {"device_id": "MOTION_001", "event": "Malicious activity detected", "trust_score": 0.7, "timestamp": "2026-09-11 15:18:54"}
 {"device_id": "MOTION_001", "event": "Malicious activity detected", "trust_score": 0.45, "timestamp": "2026-09-11 15:18:57"}
 {"device_id": "MOTION_001", "event": "Malicious activity detected", "trust_score": 0.2, "timestamp": "2026-09-11 15:19:00"}
+{"device_id": "MOTION_001", "event": "Malicious activity detected", "trust_score": 0.7, "timestamp": "2026-09-17 09:37:10"}
+{"device_id": "MOTION_001", "event": "Malicious activity detected", "trust_score": 0.45, "timestamp": "2026-09-17 09:37:13"}
+{"device_id": "MOTION_001", "event": "Malicious activity detected", "trust_score": 0.2, "timestamp": "2026-09-17 09:37:15"}

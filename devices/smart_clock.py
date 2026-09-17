@@ -1,26 +1,45 @@
-import time
 import random
+import time
+
+from devices.base_device import BaseDevice
 
 
-class SmartClock:
+class SmartClock(BaseDevice):
 
     def __init__(self, device_id):
-        self.device_id = device_id
-        self.trust_score = 0.95
+
+        super().__init__(
+            device_id=device_id,
+            device_type="smart_clock",
+
+            cpu=0.5,
+            ram=0.5,
+            battery=0.7,
+            bandwidth=0.5,
+
+            location="room",
+            normal_time="00:00-23:59"
+        )
 
     def generate_data(self):
 
         current_time = time.strftime("%H:%M:%S")
 
-        # Normal clock data
-        temperature = round(random.uniform(22, 30), 2)
+        temperature = round(
+            random.uniform(22, 30),
+            2
+        )
 
         data = {
+
             "device_id": self.device_id,
-            "device_type": "smart_clock",
+
+            "device_type": self.device_type,
+
             "time": current_time,
+
             "temperature": temperature,
-            "trust_score": self.trust_score,
+
             "status": "normal"
         }
 
