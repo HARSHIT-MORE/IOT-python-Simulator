@@ -5,3 +5,19 @@
 {"device_id": "MOTION_001", "event": "Malicious activity detected", "trust_score": 0.7, "timestamp": "2026-09-17 09:37:10"}
 {"device_id": "MOTION_001", "event": "Malicious activity detected", "trust_score": 0.45, "timestamp": "2026-09-17 09:37:13"}
 {"device_id": "MOTION_001", "event": "Malicious activity detected", "trust_score": 0.2, "timestamp": "2026-09-17 09:37:15"}
+{"device_id": "MOTION_001", "event": "Malicious activity detected", "trust_score": 0.7, "timestamp": "2026-09-17 10:48:35"}
+{"device_id": "MOTION_001", "event": "Malicious activity detected", "trust_score": 0.45, "timestamp": "2026-09-17 10:48:37"}
+{"device_id": "MOTION_001", "event": "Malicious activity detected", "trust_score": 0.2, "timestamp": "2026-09-17 10:48:40"}
+{"device_id": "MOTION_001", "event": "Malicious activity detected", "trust_score": 0.7, "timestamp": "2026-09-17 11:12:07"}
+{"device_id": "MOTION_001", "event": "Malicious activity detected", "trust_score": 0.45, "timestamp": "2026-09-17 11:12:10"}
+{"device_id": "MOTION_001", "event": "Malicious activity detected", "trust_score": 0.2, "timestamp": "2026-09-17 11:12:13"}
+{"device_id": "MOTION_001", "event": "Malicious activity detected", "trust_score": 0.7, "timestamp": "2026-09-17 11:31:10"}
+{"device_id": "MOTION_001", "event": "Malicious activity detected", "trust_score": 0.45, "timestamp": "2026-09-17 11:31:12"}
+{"device_id": "MOTION_001", "event": "Malicious activity detected", "trust_score": 0.2, "timestamp": "2026-09-17 11:31:15"}
+{"device_id": "MOTION_001", "event": "Malicious activity detected", "trust_score": 0.7, "timestamp": "2026-09-17 22:30:50"}
+{"device_id": "MOTION_001", "event": "Malicious activity detected", "trust_score": 0.45, "timestamp": "2026-09-17 22:30:53"}
+{"device_id": "MOTION_001", "event": "Malicious activity detected", "trust_score": 0.2, "timestamp": "2026-09-17 22:30:56"}
+{"device_id": "MOTION_001", "event": "Malicious activity detected", "trust_score": 0.7, "timestamp": "2026-09-17 22:33:59"}
+{"device_id": "MOTION_001", "event": "Malicious activity detected", "trust_score": 0.45, "timestamp": "2026-09-17 22:34:02"}
+{"device_id": "MOTION_001", "event": "Malicious activity detected", "trust_score": 0.2, "timestamp": "2026-09-17 22:34:05"}
+{"device_id": "MOTION_001", "event": {"event_type": "SECURITY_EVENT", "device_type": "motion_sensor", "status": "malicious", "malicious_activity": true, "unexpected_network": true, "unauthorized_command": true, "behavior_score": 0.0, "context_score": 0.0, "risk_score": 0.211, "probability_of_compromise": 0.66, "impact": 0.32, "adaptive_trust_score": 0.496, "decision": "DENY_ISOLATE", "security_action": "BLOCK_COMMUNICATION", "rcf": 0.425, "resource_pressure": 0.29}, "trust_score": 0.496, "timestamp": "2026-09-17 23:23:08"}
