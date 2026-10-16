@@ -1,5 +1,8 @@
 import time
 
+from security.forensic_analyzer import ForensicAnalyzer
+from security.recovery_manager import RecoveryManager
+
 
 class Gateway:
 
@@ -7,19 +10,42 @@ class Gateway:
         self,
         trust_manager,
         evidence_collector,
-        crypto
+        crypto,
+        history_manager
     ):
+
+        # ========================================================
+        # EXISTING COMPONENTS
+        # ========================================================
 
         self.trust_manager = trust_manager
         self.evidence_collector = evidence_collector
         self.crypto = crypto
+        self.history_manager = history_manager
 
-        # Devices that have been isolated
+        # ========================================================
+        # FORENSIC MODULE
+        # ========================================================
+
+        self.forensic_analyzer = ForensicAnalyzer()
+
+        # ========================================================
+        # RECOVERY MODULE
+        # ========================================================
+
+        self.recovery_manager = RecoveryManager()
+
+        # ========================================================
+        # DEVICES THAT HAVE BEEN ISOLATED
+        # ========================================================
+
         self.isolated_devices = set()
 
-        # Store latest security state of every device
-        self.device_security_state = {}
+        # ========================================================
+        # LATEST SECURITY STATE
+        # ========================================================
 
+        self.device_security_state = {}
 
     # ========================================================
     # RECEIVE DATA
@@ -32,7 +58,6 @@ class Gateway:
         print(
             f"\n[GATEWAY] Data received from {device_id}"
         )
-
 
         # ====================================================
         # 1. CHECK WHETHER DEVICE IS ALREADY ISOLATED
@@ -54,17 +79,13 @@ class Gateway:
                 "action": "BLOCK_COMMUNICATION"
             }
 
-
         # ====================================================
         # 2. VERIFY MESSAGE AUTHENTICATION
         # ====================================================
 
         authentication_result = (
-            self.verify_message_authentication(
-                data
-            )
+            self.verify_message_authentication(data)
         )
-
 
         # ====================================================
         # 3. EXTRACT ADAPTIVE ANALYSIS
@@ -90,7 +111,6 @@ class Gateway:
             {}
         )
 
-
         # ====================================================
         # 4. EXTRACT TRUST
         # ====================================================
@@ -104,7 +124,6 @@ class Gateway:
             "trust_status",
             "UNKNOWN"
         )
-
 
         # ====================================================
         # 5. EXTRACT RISK
@@ -120,7 +139,6 @@ class Gateway:
             "UNKNOWN"
         )
 
-
         # ====================================================
         # 6. EXTRACT DECISION
         # ====================================================
@@ -132,7 +150,7 @@ class Gateway:
 
         reason = decision_analysis.get(
             "reason",
-            "No valid decision available"
+            "Unknown reason"
         )
 
         security_action = decision_analysis.get(
@@ -142,14 +160,13 @@ class Gateway:
 
         requires_evidence = decision_analysis.get(
             "requires_evidence",
-            True
+            False
         )
 
         requires_isolation = decision_analysis.get(
             "requires_isolation",
             False
         )
-
 
         # ====================================================
         # 7. EXTRACT RESOURCE INFORMATION
@@ -162,7 +179,7 @@ class Gateway:
 
         resource_pressure = resource_analysis.get(
             "resource_pressure",
-            1.0
+            0.0
         )
 
         security_level = resource_analysis.get(
@@ -170,40 +187,35 @@ class Gateway:
             "UNKNOWN"
         )
 
-
-        # ====================================================
-        # 8. DISPLAY GATEWAY SECURITY ANALYSIS
-        # ====================================================
-
         print("\n[GATEWAY SECURITY ANALYSIS]")
 
         print(
-            "Authentication :",
+            "Authentication   :",
             authentication_result["authenticated"]
         )
 
         print(
-            "Adaptive Trust  :",
+            "Trust Score      :",
             trust_score
         )
 
         print(
-            "Trust Status    :",
+            "Trust Status     :",
             trust_status
         )
 
         print(
-            "Risk Score      :",
+            "Risk Score       :",
             risk_score
         )
 
         print(
-            "Risk Status     :",
+            "Risk Status      :",
             risk_status
         )
 
         print(
-            "RCF             :",
+            "RCF              :",
             rcf
         )
 
@@ -213,13 +225,12 @@ class Gateway:
         )
 
         print(
-            "Security Level  :",
+            "Security Level   :",
             security_level
         )
 
-
         # ====================================================
-        # 9. AUTHENTICATION FAILURE
+        # 8. AUTHENTICATION FAILURE
         # ====================================================
 
         if not authentication_result["authenticated"]:
@@ -232,22 +243,126 @@ class Gateway:
                 "[GATEWAY] Message rejected."
             )
 
+            evidence_event = {
+
+                "event_type":
+                    "AUTHENTICATION_FAILURE",
+
+                "device_type":
+                    data.get(
+                        "device_type",
+                        "unknown"
+                    ),
+
+                "status":
+                    data.get(
+                        "status",
+                        "unknown"
+                    ),
+
+                "malicious_activity":
+                    data.get(
+                        "malicious_activity",
+                        False
+                    ),
+
+                "unexpected_network":
+                    data.get(
+                        "unexpected_network",
+                        False
+                    ),
+
+                "unauthorized_command":
+                    data.get(
+                        "unauthorized_command",
+                        False
+                    ),
+
+                "tampered":
+                    data.get(
+                        "tampered",
+                        False
+                    ),
+
+                "attack_type":
+                    data.get(
+                        "attack_type",
+                        "MESSAGE_TAMPERING"
+                    ),
+
+                "attack_description":
+                    data.get(
+                        "attack_description",
+                        authentication_result["reason"]
+                    ),
+
+                "behavior_score":
+                    data.get(
+                        "behavior_score",
+                        0.0
+                    ),
+
+                "context_score":
+                    data.get(
+                        "context_score",
+                        0.0
+                    ),
+
+                "risk_score":
+                    risk_score,
+
+                "probability_of_compromise":
+                    risk_analysis.get(
+                        "probability_of_compromise",
+                        0.0
+                    ),
+
+                "impact":
+                    risk_analysis.get(
+                        "impact",
+                        0.0
+                    ),
+
+                "adaptive_trust_score":
+                    trust_score,
+
+                "decision":
+                    "DENY",
+
+                "security_action":
+                    "BLOCK_REQUEST",
+
+                "rcf":
+                    rcf,
+
+                "resource_pressure":
+                    resource_pressure
+            }
 
             evidence = self.evidence_collector.collect(
                 device_id,
-                "HMAC authentication failure",
+                evidence_event,
                 trust_score
             )
 
+            forensic_result = (
+                self.analyze_forensic_evidence(
+                    evidence
+                )
+            )
 
             self.device_security_state[
                 device_id
             ] = {
 
-                "decision": "DENY",
+                "decision":
+                    "DENY",
 
                 "reason":
                     "Message authentication failed",
+
+                "security_action":
+                    "BLOCK_REQUEST",
 
                 "trust_score":
                     trust_score,
@@ -258,16 +373,25 @@ class Gateway:
                 "authentication":
                     False,
 
+                "isolated":
+                    False,
+
+                "evidence_collected":
+                    True,
+
+                "forensic_analysis":
+                    forensic_result,
+
                 "timestamp":
                     time.strftime(
                         "%Y-%m-%d %H:%M:%S"
                     )
             }
 
-
             return {
 
-                "decision": "DENY",
+                "decision":
+                    "DENY",
 
                 "reason":
                     "Message authentication failed",
@@ -276,12 +400,14 @@ class Gateway:
                     "BLOCK_REQUEST",
 
                 "evidence":
-                    evidence
+                    evidence,
+
+                "forensic_analysis":
+                    forensic_result
             }
 
-
         # ====================================================
-        # 10. HIGH RISK / COMPROMISED DEVICE
+        # 9. HIGH RISK / ISOLATION
         # ====================================================
 
         if requires_isolation:
@@ -300,7 +426,6 @@ class Gateway:
                 reason
             )
 
-
             # ------------------------------------------------
             # Evidence Collection
             # ------------------------------------------------
@@ -315,6 +440,15 @@ class Gateway:
                     )
                 )
 
+            # ------------------------------------------------
+            # Forensic Analysis
+            # ------------------------------------------------
+
+            forensic_result = (
+                self.analyze_forensic_evidence(
+                    evidence
+                )
+            )
 
             # ------------------------------------------------
             # Device Isolation
@@ -323,7 +457,6 @@ class Gateway:
             self.isolate_device(
                 device_id
             )
-
 
             self.device_security_state[
                 device_id
@@ -353,12 +486,14 @@ class Gateway:
                 "evidence_collected":
                     evidence is not None,
 
+                "forensic_analysis":
+                    forensic_result,
+
                 "timestamp":
                     time.strftime(
                         "%Y-%m-%d %H:%M:%S"
                     )
             }
-
 
             return {
 
@@ -372,15 +507,18 @@ class Gateway:
                     "ISOLATE_DEVICE",
 
                 "evidence":
-                    evidence
+                    evidence,
+
+                "forensic_analysis":
+                    forensic_result
             }
 
-
         # ====================================================
-        # 11. EVIDENCE WITHOUT ISOLATION
+        # 10. EVIDENCE WITHOUT ISOLATION
         # ====================================================
 
         evidence = None
+        forensic_result = None
 
         if requires_evidence:
 
@@ -394,9 +532,14 @@ class Gateway:
                 )
             )
 
+            forensic_result = (
+                self.analyze_forensic_evidence(
+                    evidence
+                )
+            )
 
         # ====================================================
-        # 12. RESTRICT ACCESS
+        # 11. RESTRICT ACCESS
         # ====================================================
 
         if decision == "RESTRICT":
@@ -415,7 +558,6 @@ class Gateway:
                 security_action
             )
 
-
             self.device_security_state[
                 device_id
             ] = {
@@ -441,12 +583,17 @@ class Gateway:
                 "isolated":
                     False,
 
+                "evidence_collected":
+                    evidence is not None,
+
+                "forensic_analysis":
+                    forensic_result,
+
                 "timestamp":
                     time.strftime(
                         "%Y-%m-%d %H:%M:%S"
                     )
             }
-
 
             return {
 
@@ -460,12 +607,14 @@ class Gateway:
                     security_action,
 
                 "evidence":
-                    evidence
+                    evidence,
+
+                "forensic_analysis":
+                    forensic_result
             }
 
-
         # ====================================================
-        # 13. DENY REQUEST
+        # 12. DENY REQUEST
         # ====================================================
 
         if decision == "DENY":
@@ -484,7 +633,6 @@ class Gateway:
                 security_action
             )
 
-
             self.device_security_state[
                 device_id
             ] = {
@@ -510,12 +658,17 @@ class Gateway:
                 "isolated":
                     False,
 
+                "evidence_collected":
+                    evidence is not None,
+
+                "forensic_analysis":
+                    forensic_result,
+
                 "timestamp":
                     time.strftime(
                         "%Y-%m-%d %H:%M:%S"
                     )
             }
-
 
             return {
 
@@ -529,12 +682,14 @@ class Gateway:
                     security_action,
 
                 "evidence":
-                    evidence
+                    evidence,
+
+                "forensic_analysis":
+                    forensic_result
             }
 
-
         # ====================================================
-        # 14. ALLOW REQUEST
+        # 13. ALLOW REQUEST
         # ====================================================
 
         if decision == "ALLOW":
@@ -544,14 +699,14 @@ class Gateway:
             )
 
             print(
-                "[GATEWAY] High trust + acceptable risk."
+                "[GATEWAY] Reason:",
+                reason
             )
 
             print(
-                "[GATEWAY] Action:",
+                "[GATEWAY] Security Action:",
                 security_action
             )
-
 
             self.device_security_state[
                 device_id
@@ -578,12 +733,17 @@ class Gateway:
                 "isolated":
                     False,
 
+                "evidence_collected":
+                    evidence is not None,
+
+                "forensic_analysis":
+                    forensic_result,
+
                 "timestamp":
                     time.strftime(
                         "%Y-%m-%d %H:%M:%S"
                     )
             }
-
 
             return {
 
@@ -597,12 +757,14 @@ class Gateway:
                     security_action,
 
                 "evidence":
-                    evidence
+                    evidence,
+
+                "forensic_analysis":
+                    forensic_result
             }
 
-
         # ====================================================
-        # 15. MONITOR REQUEST
+        # 14. MONITOR REQUEST
         # ====================================================
 
         if decision == "MONITOR":
@@ -621,7 +783,6 @@ class Gateway:
                 security_action
             )
 
-
             self.device_security_state[
                 device_id
             ] = {
@@ -647,12 +808,17 @@ class Gateway:
                 "isolated":
                     False,
 
+                "evidence_collected":
+                    evidence is not None,
+
+                "forensic_analysis":
+                    forensic_result,
+
                 "timestamp":
                     time.strftime(
                         "%Y-%m-%d %H:%M:%S"
                     )
             }
-
 
             return {
 
@@ -666,12 +832,14 @@ class Gateway:
                     security_action,
 
                 "evidence":
-                    evidence
+                    evidence,
+
+                "forensic_analysis":
+                    forensic_result
             }
 
-
         # ====================================================
-        # 16. FALLBACK
+        # 15. FALLBACK
         # ====================================================
 
         print(
@@ -681,7 +849,6 @@ class Gateway:
         print(
             "[GATEWAY] Request denied for safety."
         )
-
 
         return {
 
@@ -695,9 +862,11 @@ class Gateway:
                 "BLOCK_REQUEST",
 
             "evidence":
-                evidence
-        }
+                evidence,
 
+            "forensic_analysis":
+                forensic_result
+        }
 
     # ========================================================
     # HMAC VERIFICATION
@@ -721,9 +890,8 @@ class Gateway:
             False
         )
 
-
         # ----------------------------------------------------
-        # Check whether sender generated authentication
+        # Check authentication status
         # ----------------------------------------------------
 
         if not authentication_status:
@@ -736,7 +904,6 @@ class Gateway:
                 "reason":
                     "Sender did not provide authentication"
             }
-
 
         # ----------------------------------------------------
         # Signature must exist
@@ -753,22 +920,8 @@ class Gateway:
                     "Missing HMAC signature"
             }
 
-
         # ----------------------------------------------------
-        # IMPORTANT HMAC FIX
-        #
-        # The HMAC was generated in main.py BEFORE these
-        # gateway analysis fields were added:
-        #
-        # adaptive_trust
-        # risk_analysis
-        # decision_analysis
-        # resource_analysis
-        #
-        # Therefore these fields must be removed before
-        # verification.
-        #
-        # DO NOT remove attack/tampering fields here.
+        # Reconstruct originally signed message
         # ----------------------------------------------------
 
         verification_data = data.copy()
@@ -782,6 +935,11 @@ class Gateway:
             "message_signature",
             None
         )
+
+        # ----------------------------------------------------
+        # These fields are generated AFTER HMAC.
+        # They must not affect HMAC verification.
+        # ----------------------------------------------------
 
         verification_data.pop(
             "adaptive_trust",
@@ -803,20 +961,27 @@ class Gateway:
             None
         )
 
-
         # ----------------------------------------------------
-        # Verify HMAC
+        # IMPORTANT:
+        #
+        # Do NOT remove:
+        #
+        # tampered
+        # attack_type
+        # attack_description
+        # malicious_activity
+        # unexpected_network
+        # unauthorized_command
+        #
+        # These fields are part of the message when the
+        # attack occurs after HMAC generation.
         # ----------------------------------------------------
 
         verified = self.crypto.verify_hmac(
-
             device_id,
-
             verification_data,
-
             received_signature
         )
-
 
         if verified:
 
@@ -833,7 +998,6 @@ class Gateway:
                     "Valid HMAC"
             }
 
-
         print(
             "\n[GATEWAY] HMAC verification: FAILED"
         )
@@ -846,7 +1010,6 @@ class Gateway:
             "reason":
                 "Invalid HMAC or message tampering detected"
         }
-
 
     # ========================================================
     # FORENSIC EVIDENCE COLLECTION
@@ -881,12 +1044,10 @@ class Gateway:
             {}
         )
 
-
         trust_score = adaptive_trust.get(
             "trust_score",
             0.0
         )
-
 
         event = {
 
@@ -921,6 +1082,24 @@ class Gateway:
                 data.get(
                     "unauthorized_command",
                     False
+                ),
+
+            "tampered":
+                data.get(
+                    "tampered",
+                    False
+                ),
+
+            "attack_type":
+                data.get(
+                    "attack_type",
+                    None
+                ),
+
+            "attack_description":
+                data.get(
+                    "attack_description",
+                    None
                 ),
 
             "behavior_score":
@@ -981,29 +1160,157 @@ class Gateway:
                 )
         }
 
-
         print(
             "\n[GATEWAY] Collecting forensic evidence..."
         )
 
-
         evidence = self.evidence_collector.collect(
-
             device_id,
-
             event,
-
             trust_score
         )
-
 
         print(
             "[GATEWAY] Forensic evidence stored."
         )
 
-
         return evidence
 
+    # ========================================================
+    # FORENSIC ANALYSIS
+    # ========================================================
+
+    def analyze_forensic_evidence(
+        self,
+        evidence
+    ):
+
+        if evidence is None:
+
+            return None
+
+        print(
+            "\n[GATEWAY] Starting forensic analysis..."
+        )
+
+        forensic_result = (
+            self.forensic_analyzer.analyze(
+                evidence
+            )
+        )
+
+        self.forensic_analyzer.display_analysis(
+            forensic_result
+        )
+
+        # ====================================================
+        # FORENSIC FEEDBACK
+        # ====================================================
+
+        history_update = (
+            self.update_forensic_security_history(
+                forensic_result
+            )
+        )
+
+        forensic_result[
+            "history_update"
+        ] = history_update
+
+        device_id = forensic_result.get(
+            "device_id",
+            "UNKNOWN"
+        )
+
+        if device_id in self.device_security_state:
+
+            self.device_security_state[
+                device_id
+            ][
+                "forensic_analysis"
+            ] = forensic_result
+
+            self.device_security_state[
+                device_id
+            ][
+                "forensic_history_update"
+            ] = history_update
+
+        return forensic_result
+
+    # ========================================================
+    # UPDATE FORENSIC SECURITY HISTORY
+    # ========================================================
+
+    def update_forensic_security_history(
+        self,
+        forensic_result
+    ):
+
+        if forensic_result is None:
+
+            return None
+
+        device_id = forensic_result.get(
+            "device_id"
+        )
+
+        if device_id is None:
+
+            return None
+
+        print(
+            "\n[GATEWAY] Updating security history "
+            "from forensic analysis..."
+        )
+
+        history_update = (
+            self.history_manager.record_forensic_incident(
+                device_id,
+                forensic_result
+            )
+        )
+
+        print(
+            "[GATEWAY] Forensic security history updated."
+        )
+
+        print(
+            "[GATEWAY] Forensic incidents:",
+            history_update[
+                "forensic_incidents"
+            ]
+        )
+
+        print(
+            "[GATEWAY] Confirmed incidents:",
+            history_update[
+                "confirmed_incidents"
+            ]
+        )
+
+        print(
+            "[GATEWAY] New incident:",
+            history_update[
+                "new_incident"
+            ]
+        )
+
+        print(
+            "[GATEWAY] Incident already active:",
+            history_update[
+                "incident_already_active"
+            ]
+        )
+
+        print(
+            "[GATEWAY] Last severity:",
+            history_update[
+                "last_severity"
+            ]
+        )
+
+        return history_update
 
     # ========================================================
     # DEVICE ISOLATION
@@ -1018,9 +1325,8 @@ class Gateway:
             device_id
         )
 
-
         print(
-            "\n" + "!" * 70
+            "\n" + "=" * 70
         )
 
         print(
@@ -1032,9 +1338,264 @@ class Gateway:
         )
 
         print(
-            "!" * 70
+            "=" * 70
         )
 
+    # ========================================================
+    # DEVICE RECOVERY
+    # ========================================================
+
+    def recover_device(
+        self,
+        device_id,
+        authentication_result,
+        behavior_score,
+        context_score,
+        risk_score,
+        trust_score,
+        forensic_result
+    ):
+
+        print(
+            "\n" + "=" * 70
+        )
+
+        print(
+            f"[GATEWAY] RECOVERY PROCESS FOR {device_id}"
+        )
+
+        print(
+            "=" * 70
+        )
+
+        # ----------------------------------------------------
+        # Device must be isolated first
+        # ----------------------------------------------------
+
+        if not self.is_device_isolated(
+            device_id
+        ):
+
+            print(
+                "[RECOVERY] Device is not isolated."
+            )
+
+            print(
+                "[RECOVERY] Recovery process not required."
+            )
+
+            return {
+
+                "device_id":
+                    device_id,
+
+                "recovery_status":
+                    "NOT_REQUIRED",
+
+                "reason":
+                    "Device is not isolated"
+            }
+
+        # ----------------------------------------------------
+        # Start recovery
+        # ----------------------------------------------------
+
+        recovery_start = (
+            self.recovery_manager.start_recovery(
+                device_id,
+                forensic_result or {}
+            )
+        )
+
+        # ----------------------------------------------------
+        # Re-authentication
+        # ----------------------------------------------------
+
+        reauthenticated = (
+            self.recovery_manager.reauthenticate_device(
+                device_id,
+                authentication_result
+            )
+        )
+
+        if not reauthenticated:
+
+            result = {
+
+                "device_id":
+                    device_id,
+
+                "recovery_status":
+                    "RECOVERY_FAILED",
+
+                "reason":
+                    "Device re-authentication failed",
+
+                "authentication":
+                    False,
+
+                "timestamp":
+                    time.strftime(
+                        "%Y-%m-%d %H:%M:%S"
+                    )
+            }
+
+            if device_id not in self.device_security_state:
+                self.device_security_state[
+                    device_id
+                ] = {}
+
+            self.device_security_state[
+                device_id
+            ][
+                "recovery_result"
+            ] = result
+
+            self.recovery_manager.complete_recovery(
+                device_id,
+                result
+            )
+
+            return result
+
+        # ----------------------------------------------------
+        # Security re-evaluation
+        # ----------------------------------------------------
+
+        recovery_result = (
+            self.recovery_manager.reevaluate_device(
+                device_id,
+                behavior_score,
+                context_score,
+                risk_score,
+                trust_score
+            )
+        )
+
+        recovery_result[
+            "authentication"
+        ] = True
+
+        recovery_result[
+            "recovery_start"
+        ] = recovery_start
+
+        # ----------------------------------------------------
+        # Complete recovery
+        # ----------------------------------------------------
+
+        recovery_result = (
+            self.recovery_manager.complete_recovery(
+                device_id,
+                recovery_result
+            )
+        )
+
+        # ----------------------------------------------------
+        # Successful recovery
+        # ----------------------------------------------------
+
+        if (
+            recovery_result[
+                "recovery_status"
+            ]
+            == "RECOVERY_SUCCESSFUL"
+        ):
+
+            self.isolated_devices.discard(
+                device_id
+            )
+
+            # ====================================================
+            # IMPORTANT FORENSIC FIX
+            # ====================================================
+            #
+            # The incident remains in historical records.
+            #
+            # But the active incident is now resolved.
+            #
+            # If the same device is attacked again later,
+            # HistoryManager will count that as a NEW incident.
+            # ====================================================
+
+            attack_type = None
+
+            if forensic_result is not None:
+
+                attack_type = forensic_result.get(
+                    "attack_type"
+                )
+
+            self.history_manager.resolve_forensic_incident(
+                device_id,
+                attack_type
+            )
+
+            self.device_security_state[
+                device_id
+            ] = {
+
+                "decision":
+                    "MONITOR",
+
+                "reason":
+                    "Device successfully recovered",
+
+                "security_action":
+                    "ALLOW_WITH_MONITORING",
+
+                "trust_score":
+                    trust_score,
+
+                "risk_score":
+                    risk_score,
+
+                "authentication":
+                    True,
+
+                "isolated":
+                    False,
+
+                "recovery_status":
+                    "RECOVERY_SUCCESSFUL",
+
+                "forensic_analysis":
+                    forensic_result,
+
+                "recovery_result":
+                    recovery_result,
+
+                "timestamp":
+                    time.strftime(
+                        "%Y-%m-%d %H:%M:%S"
+                    )
+            }
+
+        # ----------------------------------------------------
+        # Failed recovery
+        # ----------------------------------------------------
+
+        else:
+
+            if device_id not in self.device_security_state:
+
+                self.device_security_state[
+                    device_id
+                ] = {}
+
+            self.device_security_state[
+                device_id
+            ][
+                "recovery_result"
+            ] = recovery_result
+
+            self.device_security_state[
+                device_id
+            ][
+                "isolated"
+            ] = True
+
+        return recovery_result
 
     # ========================================================
     # CHECK DEVICE ISOLATION
@@ -1049,7 +1610,6 @@ class Gateway:
             device_id
             in self.isolated_devices
         )
-
 
     # ========================================================
     # GET DEVICE SECURITY STATE
@@ -1073,13 +1633,43 @@ class Gateway:
             }
         )
 
-
     # ========================================================
     # GET ALL ISOLATED DEVICES
     # ========================================================
 
-    def get_isolated_devices(self):
+    def get_isolated_devices(
+        self
+    ):
 
         return list(
             self.isolated_devices
+        )
+
+    # ========================================================
+    # GET RECOVERY HISTORY
+    # ========================================================
+
+    def get_recovery_history(
+        self,
+        device_id
+    ):
+
+        return (
+            self.recovery_manager
+            .get_recovery_history(
+                device_id
+            )
+        )
+
+    # ========================================================
+    # GET DEVICES UNDER RECOVERY
+    # ========================================================
+
+    def get_devices_under_recovery(
+        self
+    ):
+
+        return (
+            self.recovery_manager
+            .get_devices_under_recovery()
         )

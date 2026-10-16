@@ -1,0 +1,31 @@
+{
+    "evidence_id": "a741eded-ac98-421b-909b-5b62d044f2ff",
+    "timestamp": 1789925524.7863052,
+    "device_id": "MOTION_001",
+    "event": {
+        "event_type": "SECURITY_EVENT",
+        "device_type": "motion_sensor",
+        "status": "malicious",
+        "malicious_activity": true,
+        "unexpected_network": true,
+        "unauthorized_command": true,
+        "tampered": false,
+        "attack_type": "DEVICE_COMPROMISE",
+        "attack_description": "Compromised device generated abnormal behavior.",
+        "behavior_score": 0.0,
+        "context_score": 0.0,
+        "risk_score": 0.211,
+        "probability_of_compromise": 0.66,
+        "impact": 0.32,
+        "adaptive_trust_score": 0.386,
+        "decision": "DENY_ISOLATE",
+        "security_action": "BLOCK_COMMUNICATION",
+        "rcf": 0.425,
+        "resource_pressure": 0.304
+    },
+    "trust_score": 0.386,
+    "risk_score": null,
+    "resource_state": null,
+    "device_state": null,
+    "evidence_hash": "2e46c169c276ab760c387b5d5d29d31ae3ca4c56575634e5cced97455780ced4"
+}

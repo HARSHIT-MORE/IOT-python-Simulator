@@ -2,26 +2,47 @@ class HistoryManager:
 
     def __init__(self):
 
-        # ======================================================
-        # WEIGHTS
-        # ======================================================
+        # ============================================================
+        # HISTORY WEIGHTS
+        # ============================================================
 
-        self.success_weight = 0.25
-        self.behavior_weight = 0.30
-        self.context_weight = 0.20
+        self.success_weight = 0.30
+        self.behavior_weight = 0.35
+        self.context_weight = 0.35
+
+        # Negative factors
         self.failure_penalty = 0.10
         self.anomaly_penalty = 0.10
-        self.compromise_penalty = 0.05
 
-        # ======================================================
-        # HISTORY STORAGE
-        # ======================================================
+        # Forensic penalties
+        self.forensic_incident_penalty = 0.10
+        self.high_severity_penalty = 0.10
+
+        # ============================================================
+        # DEVICE HISTORY
+        # ============================================================
 
         self.history = {}
 
-    # ==========================================================
-    # REGISTER DEVICE
-    # ==========================================================
+        # ------------------------------------------------------------
+        # IMPORTANT:
+        # Stores currently active forensic incidents.
+        #
+        # Example:
+        # {
+        #     "MOTION_001": {"DEVICE_COMPROMISE"},
+        #     "CAMERA_001": {"MESSAGE_TAMPERING"}
+        # }
+        #
+        # This prevents the same ongoing attack from being counted
+        # as a new incident every round.
+        # ------------------------------------------------------------
+
+        self.active_incidents = {}
+
+    # ================================================================
+    # DEVICE REGISTRATION
+    # ================================================================
 
     def register_device(self, device_id):
 
@@ -30,21 +51,26 @@ class HistoryManager:
             self.history[device_id] = {
 
                 "behavior_scores": [],
-
                 "context_scores": [],
 
                 "successes": 0,
-
                 "failures": 0,
-
                 "anomalies": 0,
 
-                "previous_compromise": False
+                "forensic_incidents": 0,
+                "confirmed_incidents": 0,
+
+                "last_attack_type": None,
+                "last_severity": None,
+                "last_severity_score": 0.0
             }
 
-    # ==========================================================
-    # RECORD OBSERVATION
-    # ==========================================================
+        if device_id not in self.active_incidents:
+            self.active_incidents[device_id] = set()
+
+    # ================================================================
+    # RECORD NORMAL OBSERVATION
+    # ================================================================
 
     def record_observation(
         self,
@@ -52,258 +78,374 @@ class HistoryManager:
         behavior_score,
         context_score,
         success=True,
-        anomaly=False,
-        compromised=False
+        anomaly=False
     ):
 
-        # Automatically register unknown device
-
         if device_id not in self.history:
+            self.register_device(device_id)
 
-            self.register_device(
-                device_id
-            )
+        device_history = self.history[device_id]
 
-        device_history = (
-            self.history[device_id]
-        )
-
-        # ------------------------------------------------------
-        # Store behavior
-        # ------------------------------------------------------
-
-        device_history[
-            "behavior_scores"
-        ].append(
+        # Store behavior and context
+        device_history["behavior_scores"].append(
             behavior_score
         )
 
-        # ------------------------------------------------------
-        # Store context
-        # ------------------------------------------------------
-
-        device_history[
-            "context_scores"
-        ].append(
+        device_history["context_scores"].append(
             context_score
         )
 
-        # ------------------------------------------------------
-        # Success / failure
-        # ------------------------------------------------------
+        # ------------------------------------------------------------
+        # Success / Failure
+        # ------------------------------------------------------------
 
         if success:
+            device_history["successes"] += 1
+        else:
+            device_history["failures"] += 1
 
-            device_history[
-                "successes"
-            ] += 1
+        # ------------------------------------------------------------
+        # Anomaly
+        # ------------------------------------------------------------
+
+        if anomaly:
+            device_history["anomalies"] += 1
+
+    # ================================================================
+    # RECORD FORENSIC INCIDENT
+    # ================================================================
+
+    def record_forensic_incident(
+        self,
+        device_id,
+        forensic_result
+    ):
+
+        if device_id not in self.history:
+            self.register_device(device_id)
+
+        device_history = self.history[device_id]
+
+        # ------------------------------------------------------------
+        # Extract forensic information
+        # ------------------------------------------------------------
+
+        severity = forensic_result.get(
+            "severity",
+            "UNKNOWN"
+        )
+
+        attack_type = forensic_result.get(
+            "attack_type",
+            "UNKNOWN"
+        )
+
+        severity_score = forensic_result.get(
+            "severity_score",
+            0.0
+        )
+
+        indicators = forensic_result.get(
+            "indicators_of_compromise",
+            []
+        )
+
+        # ------------------------------------------------------------
+        # Check whether this attack is already active
+        # ------------------------------------------------------------
+
+        active_incidents = self.active_incidents[device_id]
+
+        is_new_incident = attack_type not in active_incidents
+
+        # ============================================================
+        # NEW INCIDENT
+        # ============================================================
+
+        if is_new_incident:
+
+            # Mark this attack as active
+            active_incidents.add(attack_type)
+
+            # Count the incident only once
+            device_history["forensic_incidents"] += 1
+
+            # --------------------------------------------------------
+            # Determine whether this is a confirmed incident
+            # --------------------------------------------------------
+
+            if (
+                severity in ["MEDIUM", "HIGH"]
+                or len(indicators) > 0
+            ):
+                device_history["confirmed_incidents"] += 1
+
+        # ============================================================
+        # EXISTING INCIDENT
+        # ============================================================
 
         else:
 
-            device_history[
-                "failures"
-            ] += 1
+            # --------------------------------------------------------
+            # Do NOT increment forensic_incidents.
+            #
+            # This is simply another forensic observation of the
+            # same ongoing incident.
+            # --------------------------------------------------------
 
-        # ------------------------------------------------------
-        # Anomaly
-        # ------------------------------------------------------
+            pass
 
-        if anomaly:
+        # ------------------------------------------------------------
+        # Always update the latest forensic information
+        # ------------------------------------------------------------
 
-            device_history[
-                "anomalies"
-            ] += 1
+        device_history["last_attack_type"] = attack_type
+        device_history["last_severity"] = severity
+        device_history["last_severity_score"] = severity_score
 
-        # ------------------------------------------------------
-        # Previous compromise
-        # ------------------------------------------------------
+        return {
+            "device_id": device_id,
 
-        if compromised:
+            "forensic_incidents":
+                device_history["forensic_incidents"],
 
-            device_history[
-                "previous_compromise"
-            ] = True
+            "confirmed_incidents":
+                device_history["confirmed_incidents"],
 
-    # ==========================================================
+            "last_attack_type":
+                attack_type,
+
+            "last_severity":
+                severity,
+
+            "last_severity_score":
+                severity_score,
+
+            "new_incident":
+                is_new_incident,
+
+            "incident_already_active":
+                not is_new_incident
+        }
+
+    # ================================================================
+    # RESOLVE FORENSIC INCIDENT
+    # ================================================================
+
+    def resolve_forensic_incident(
+        self,
+        device_id,
+        attack_type=None
+    ):
+
+        if device_id not in self.active_incidents:
+            return False
+
+        # ------------------------------------------------------------
+        # If attack type is specified, resolve only that incident.
+        # ------------------------------------------------------------
+
+        if attack_type is not None:
+
+            if attack_type in self.active_incidents[device_id]:
+
+                self.active_incidents[device_id].remove(
+                    attack_type
+                )
+
+                return True
+
+            return False
+
+        # ------------------------------------------------------------
+        # If no attack type is provided, resolve all active incidents
+        # for this device.
+        # ------------------------------------------------------------
+
+        self.active_incidents[device_id].clear()
+
+        return True
+
+    # ================================================================
+    # CHECK WHETHER DEVICE HAS FORENSIC HISTORY
+    # ================================================================
+
+    def has_forensic_incident(self, device_id):
+
+        history = self.history.get(device_id)
+
+        if history is None:
+            return False
+
+        return history["confirmed_incidents"] > 0
+
+    # ================================================================
+    # CHECK WHETHER INCIDENT IS CURRENTLY ACTIVE
+    # ================================================================
+
+    def has_active_forensic_incident(
+        self,
+        device_id,
+        attack_type=None
+    ):
+
+        if device_id not in self.active_incidents:
+            return False
+
+        if attack_type is None:
+            return len(
+                self.active_incidents[device_id]
+            ) > 0
+
+        return attack_type in self.active_incidents[device_id]
+
+    # ================================================================
     # AVERAGE BEHAVIOR
-    # ==========================================================
+    # ================================================================
 
-    def calculate_average_behavior(
-        self,
-        device_id
-    ):
+    def calculate_average_behavior(self, device_id):
 
-        history = self.history.get(
-            device_id
-        )
+        history = self.history.get(device_id)
 
         if history is None:
-
             return 0.5
 
-        scores = history[
-            "behavior_scores"
-        ]
+        scores = history["behavior_scores"]
 
         if len(scores) == 0:
-
             return 0.5
 
         return sum(scores) / len(scores)
 
-    # ==========================================================
+    # ================================================================
     # AVERAGE CONTEXT
-    # ==========================================================
+    # ================================================================
 
-    def calculate_average_context(
-        self,
-        device_id
-    ):
+    def calculate_average_context(self, device_id):
 
-        history = self.history.get(
-            device_id
-        )
+        history = self.history.get(device_id)
 
         if history is None:
-
             return 0.5
 
-        scores = history[
-            "context_scores"
-        ]
+        scores = history["context_scores"]
 
         if len(scores) == 0:
-
             return 0.5
 
         return sum(scores) / len(scores)
 
-    # ==========================================================
+    # ================================================================
     # SUCCESS RATE
-    # ==========================================================
+    # ================================================================
 
-    def calculate_success_rate(
-        self,
-        device_id
-    ):
+    def calculate_success_rate(self, device_id):
 
-        history = self.history.get(
-            device_id
-        )
+        history = self.history.get(device_id)
 
         if history is None:
-
             return 0.5
 
-        successes = history[
-            "successes"
-        ]
-
-        failures = history[
-            "failures"
-        ]
+        successes = history["successes"]
+        failures = history["failures"]
 
         total = successes + failures
 
         if total == 0:
-
             return 0.5
 
         return successes / total
 
-    # ==========================================================
+    # ================================================================
     # FAILURE RATE
-    # ==========================================================
+    # ================================================================
 
-    def calculate_failure_rate(
-        self,
-        device_id
-    ):
+    def calculate_failure_rate(self, device_id):
 
-        history = self.history.get(
-            device_id
-        )
+        history = self.history.get(device_id)
 
         if history is None:
-
             return 0.0
 
-        successes = history[
-            "successes"
-        ]
-
-        failures = history[
-            "failures"
-        ]
+        successes = history["successes"]
+        failures = history["failures"]
 
         total = successes + failures
 
         if total == 0:
-
             return 0.0
 
         return failures / total
 
-    # ==========================================================
+    # ================================================================
     # ANOMALY RATE
-    # ==========================================================
+    # ================================================================
 
-    def calculate_anomaly_rate(
-        self,
-        device_id
-    ):
+    def calculate_anomaly_rate(self, device_id):
 
-        history = self.history.get(
-            device_id
-        )
+        history = self.history.get(device_id)
 
         if history is None:
-
             return 0.0
 
-        anomalies = history[
-            "anomalies"
-        ]
+        anomalies = history["anomalies"]
 
         total = len(
             history["behavior_scores"]
         )
 
         if total == 0:
-
             return 0.0
 
         return anomalies / total
 
-    # ==========================================================
-    # COMPROMISE HISTORY
-    # ==========================================================
+    # ================================================================
+    # FORENSIC PENALTY
+    # ================================================================
 
-    def has_previous_compromise(
-        self,
-        device_id
-    ):
+    def calculate_forensic_penalty(self, device_id):
 
-        history = self.history.get(
-            device_id
-        )
+        history = self.history.get(device_id)
 
         if history is None:
+            return 0.0
 
-            return False
-
-        return history[
-            "previous_compromise"
+        confirmed_incidents = history[
+            "confirmed_incidents"
         ]
 
-    # ==========================================================
-    # HISTORICAL TRUST SCORE
-    # ==========================================================
+        last_severity = history[
+            "last_severity"
+        ]
 
-    def calculate_history_score(
-        self,
-        device_id
-    ):
+        # ------------------------------------------------------------
+        # Each confirmed incident contributes a penalty.
+        # Maximum base penalty = 0.30
+        # ------------------------------------------------------------
+
+        penalty = min(
+            0.30,
+            confirmed_incidents *
+            self.forensic_incident_penalty
+        )
+
+        # ------------------------------------------------------------
+        # Additional penalty for HIGH severity
+        # ------------------------------------------------------------
+
+        if last_severity == "HIGH":
+            penalty += self.high_severity_penalty
+
+        return min(
+            0.40,
+            penalty
+        )
+
+    # ================================================================
+    # HISTORY SCORE
+    # ================================================================
+
+    def calculate_history_score(self, device_id):
 
         average_behavior = (
             self.calculate_average_behavior(
@@ -335,54 +477,63 @@ class HistoryManager:
             )
         )
 
-        previous_compromise = (
-            self.has_previous_compromise(
+        forensic_penalty = (
+            self.calculate_forensic_penalty(
                 device_id
             )
         )
 
-        # ------------------------------------------------------
-        # Historical trust
-        # ------------------------------------------------------
+        # ------------------------------------------------------------
+        # Positive history
+        # ------------------------------------------------------------
 
-        history_score = (
+        positive_score = (
 
-            self.success_weight
-            * success_rate
+            self.success_weight *
+            success_rate
 
-            + self.behavior_weight
-            * average_behavior
+            +
 
-            + self.context_weight
-            * average_context
+            self.behavior_weight *
+            average_behavior
 
-            - self.failure_penalty
-            * failure_rate
+            +
 
-            - self.anomaly_penalty
-            * anomaly_rate
+            self.context_weight *
+            average_context
         )
 
-        # ------------------------------------------------------
-        # Previous compromise penalty
-        # ------------------------------------------------------
+        # ------------------------------------------------------------
+        # Negative history
+        # ------------------------------------------------------------
 
-        if previous_compromise:
+        negative_score = (
 
-            history_score -= (
-                self.compromise_penalty
-            )
+            self.failure_penalty *
+            failure_rate
 
-        # ------------------------------------------------------
-        # Keep score between 0 and 1
-        # ------------------------------------------------------
+            +
+
+            self.anomaly_penalty *
+            anomaly_rate
+
+            +
+
+            forensic_penalty
+        )
+
+        # ------------------------------------------------------------
+        # Final history score
+        # ------------------------------------------------------------
+
+        history_score = (
+            positive_score -
+            negative_score
+        )
 
         history_score = max(
             0.0,
-            min(
-                1.0,
-                history_score
-            )
+            min(1.0, history_score)
         )
 
         return round(
@@ -390,9 +541,9 @@ class HistoryManager:
             3
         )
 
-    # ==========================================================
+    # ================================================================
     # HISTORY STATUS
-    # ==========================================================
+    # ================================================================
 
     def get_history_status(
         self,
@@ -400,34 +551,32 @@ class HistoryManager:
     ):
 
         if history_score >= 0.80:
-
             return "GOOD_HISTORY"
 
         elif history_score >= 0.60:
-
             return "ACCEPTABLE_HISTORY"
 
         elif history_score >= 0.40:
-
             return "QUESTIONABLE_HISTORY"
 
         else:
-
             return "POOR_HISTORY"
 
-    # ==========================================================
+    # ================================================================
     # COMPLETE HISTORY ANALYSIS
-    # ==========================================================
+    # ================================================================
 
-    def analyze(
-        self,
-        device_id
-    ):
+    def analyze(self, device_id):
 
         history_score = (
             self.calculate_history_score(
                 device_id
             )
+        )
+
+        history = self.history.get(
+            device_id,
+            {}
         )
 
         return {
@@ -480,8 +629,47 @@ class HistoryManager:
                     3
                 ),
 
-            "previous_compromise":
-                self.has_previous_compromise(
+            "forensic_incidents":
+                history.get(
+                    "forensic_incidents",
+                    0
+                ),
+
+            "confirmed_incidents":
+                history.get(
+                    "confirmed_incidents",
+                    0
+                ),
+
+            "last_attack_type":
+                history.get(
+                    "last_attack_type"
+                ),
+
+            "last_severity":
+                history.get(
+                    "last_severity"
+                ),
+
+            "last_severity_score":
+                round(
+                    history.get(
+                        "last_severity_score",
+                        0.0
+                    ),
+                    3
+                ),
+
+            "forensic_incident":
+                self.has_forensic_incident(
                     device_id
+                ),
+
+            "active_forensic_incidents":
+                list(
+                    self.active_incidents.get(
+                        device_id,
+                        set()
+                    )
                 )
         }

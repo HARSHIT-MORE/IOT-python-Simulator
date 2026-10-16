@@ -1,37 +1,56 @@
+#scores tell us how good/bad a factor is, 
+# while the weights tell us how much importance that factor should have in the final trust calculation.
+
 class AdaptiveWeightEngine:
 
     def __init__(self):
 
-        # ----------------------------------------------------
-        # Baseline weights
-        # ----------------------------------------------------
-        #
-        # These are initial experimental values.
-        # They will later be tuned through experiments.
-        #
-        # B = Behavior
-        # C = Context
-        # H = History
-        # R = Risk
-        # ----------------------------------------------------
+        # ====================================================
+        # BASE WEIGHTS
+        # ====================================================
 
         self.base_weights = {
-            "behavior": 0.25,
-            "context": 0.20,
-            "history": 0.30,
-            "risk": 0.25
+
+            "behavior":
+                0.25,
+
+            "context":
+                0.20,
+
+            "history":
+                0.30,
+
+            "risk":
+                0.25
         }
 
+        # ====================================================
+        # FORENSIC FEEDBACK PARAMETERS
+        # ====================================================
+
+        self.forensic_history_factor = 1.25
+
+        self.forensic_risk_factor = 1.20
+
+        self.high_severity_history_factor = 1.15
+
+        self.high_severity_risk_factor = 1.15
 
     # ========================================================
     # NORMALIZE WEIGHTS
     # ========================================================
 
-    def normalize_weights(self, weights):
+    def normalize_weights(
+        self,
+        weights
+    ):
 
-        total = sum(weights.values())
+        total = sum(
+            weights.values()
+        )
 
         if total == 0:
+
             return self.base_weights.copy()
 
         normalized_weights = {}
@@ -45,94 +64,137 @@ class AdaptiveWeightEngine:
 
         return normalized_weights
 
-
     # ========================================================
     # CALCULATE ADAPTIVE WEIGHTS
     # ========================================================
 
     def calculate_adaptive_weights(
+
         self,
+
         behavior_score,
+
         context_score,
+
         history_score,
+
         risk_score,
-        previous_compromise=False
+
+        forensic_incident=False,
+
+        forensic_severity="UNKNOWN"
     ):
 
-        # ----------------------------------------------------
-        # Start from baseline weights
-        # ----------------------------------------------------
-
-        weights = self.base_weights.copy()
-
-
-        # ----------------------------------------------------
-        # 1. BEHAVIOR ADAPTATION
-        # ----------------------------------------------------
-
-        behavior_anomaly = 1 - behavior_score
-
-        weights["behavior"] *= (
-            1 + behavior_anomaly
+        weights = (
+            self.base_weights.copy()
         )
 
-
         # ----------------------------------------------------
-        # 2. CONTEXT ADAPTATION
+        # Behavior anomaly
         # ----------------------------------------------------
 
-        context_anomaly = 1 - context_score
-
-        weights["context"] *= (
-            1 + context_anomaly
+        behavior_anomaly = (
+            1 - behavior_score
         )
 
-
-        # ----------------------------------------------------
-        # 3. HISTORY ADAPTATION
-        # ----------------------------------------------------
-
-        history_anomaly = 1 - history_score
-
-        weights["history"] *= (
-            1 + history_anomaly
+        weights[
+            "behavior"
+        ] *= (
+            1
+            +
+            behavior_anomaly
         )
 
-
         # ----------------------------------------------------
-        # 4. RISK ADAPTATION
+        # Context anomaly
         # ----------------------------------------------------
 
-        weights["risk"] *= (
-            1 + risk_score
+        context_anomaly = (
+            1 - context_score
         )
 
-
-        # ----------------------------------------------------
-        # 5. PREVIOUS COMPROMISE
-        # ----------------------------------------------------
-
-        if previous_compromise:
-
-            weights["history"] *= 1.25
-
-            weights["risk"] *= 1.20
-
-
-        # ----------------------------------------------------
-        # 6. NORMALIZE
-        # ----------------------------------------------------
-
-        adaptive_weights = (
-            self.normalize_weights(weights)
+        weights[
+            "context"
+        ] *= (
+            1
+            +
+            context_anomaly
         )
 
+        # ----------------------------------------------------
+        # Historical weakness
+        # ----------------------------------------------------
 
-        return adaptive_weights
+        history_anomaly = (
+            1 - history_score
+        )
 
+        weights[
+            "history"
+        ] *= (
+            1
+            +
+            history_anomaly
+        )
+
+        # ----------------------------------------------------
+        # Current risk
+        # ----------------------------------------------------
+
+        weights[
+            "risk"
+        ] *= (
+            1
+            +
+            risk_score
+        )
+
+        # ====================================================
+        # FORENSIC FEEDBACK
+        # ====================================================
+
+        if forensic_incident:
+
+            weights[
+                "history"
+            ] *= (
+                self.forensic_history_factor
+            )
+
+            weights[
+                "risk"
+            ] *= (
+                self.forensic_risk_factor
+            )
+
+        # ----------------------------------------------------
+        # High-severity forensic incident
+        # ----------------------------------------------------
+
+        if forensic_severity == "HIGH": #additional increase
+
+            weights[
+                "history"
+            ] *= (
+                self.high_severity_history_factor
+            )
+
+            weights[
+                "risk"
+            ] *= (
+                self.high_severity_risk_factor
+            )
+
+        # ----------------------------------------------------
+        # Normalize
+        # ----------------------------------------------------
+
+        return self.normalize_weights(
+            weights
+        )
 
     # ========================================================
-    # DETERMINE DOMINANT FACTOR
+    # DOMINANT FACTOR
     # ========================================================
 
     def get_dominant_factor(
@@ -140,63 +202,91 @@ class AdaptiveWeightEngine:
         adaptive_weights
     ):
 
-        dominant_factor = max(
+        return max(
             adaptive_weights,
             key=adaptive_weights.get
         )
 
-        return dominant_factor
-
-
     # ========================================================
-    # ANALYZE ADAPTATION
+    # COMPLETE ANALYSIS
     # ========================================================
 
     def analyze(
+
         self,
+
         behavior_score,
+
         context_score,
+
         history_score,
+
         risk_score,
-        previous_compromise=False
+
+        forensic_incident=False,
+
+        forensic_severity="UNKNOWN"
     ):
 
         adaptive_weights = (
+
             self.calculate_adaptive_weights(
 
-                behavior_score=behavior_score,
+                behavior_score=
+                    behavior_score,
 
-                context_score=context_score,
+                context_score=
+                    context_score,
 
-                history_score=history_score,
+                history_score=
+                    history_score,
 
-                risk_score=risk_score,
+                risk_score=
+                    risk_score,
 
-                previous_compromise=previous_compromise
+                forensic_incident=
+                    forensic_incident,
+
+                forensic_severity=
+                    forensic_severity
             )
         )
 
-
         dominant_factor = (
+
             self.get_dominant_factor(
                 adaptive_weights
             )
         )
 
-
         return {
+
             "behavior_weight":
-                adaptive_weights["behavior"],
+                adaptive_weights[
+                    "behavior"
+                ],
 
             "context_weight":
-                adaptive_weights["context"],
+                adaptive_weights[
+                    "context"
+                ],
 
             "history_weight":
-                adaptive_weights["history"],
+                adaptive_weights[
+                    "history"
+                ],
 
             "risk_weight":
-                adaptive_weights["risk"],
+                adaptive_weights[
+                    "risk"
+                ],
 
             "dominant_factor":
-                dominant_factor
+                dominant_factor,
+
+            "forensic_feedback":
+                forensic_incident,
+
+            "forensic_severity":
+                forensic_severity
         }

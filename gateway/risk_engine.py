@@ -2,16 +2,39 @@ class RiskEngine:
 
     def __init__(self):
 
-        # Weights for risk components
-        self.behavior_weight = 0.30
+        # ========================================================
+        # PROBABILITY OF COMPROMISE WEIGHTS
+        # ========================================================
+        #
+        # These weights determine how strongly each factor
+        # contributes to the probability that a device/request
+        # is compromised.
+        #
+        # Total = 1.0
+        #
+
+        self.behavior_weight = 0.35
         self.context_weight = 0.20
         self.vulnerability_weight = 0.20
-        self.sensitivity_weight = 0.15
-        self.exposure_weight = 0.15
+        self.exposure_weight = 0.25
 
-    # --------------------------------------------------------
+        # ========================================================
+        # IMPACT WEIGHTS
+        # ========================================================
+        #
+        # Impact represents how serious the consequences would
+        # be if compromise occurs.
+        #
+        # Total = 1.0
+        #
+
+        self.criticality_weight = 0.60
+        self.sensitivity_weight = 0.40
+
+
+    # ============================================================
     # Vulnerability
-    # --------------------------------------------------------
+    # ============================================================
 
     def calculate_vulnerability(self, device):
 
@@ -27,9 +50,10 @@ class RiskEngine:
             0.50
         )
 
-    # --------------------------------------------------------
+
+    # ============================================================
     # Resource Sensitivity
-    # --------------------------------------------------------
+    # ============================================================
 
     def calculate_resource_sensitivity(self, data):
 
@@ -51,28 +75,37 @@ class RiskEngine:
             0.50
         )
 
-    # --------------------------------------------------------
+
+    # ============================================================
     # Exposure
-    # --------------------------------------------------------
+    # ============================================================
 
     def calculate_exposure(self, data):
 
+        # Baseline exposure
         exposure = 0.20
 
+        # Unexpected network communication increases exposure
         if data.get("unexpected_network", False):
             exposure += 0.30
 
+        # Unauthorized commands indicate greater exposure
         if data.get("unauthorized_command", False):
             exposure += 0.30
 
+        # Malicious activity provides additional evidence
         if data.get("malicious_activity", False):
             exposure += 0.20
 
-        return min(1.0, exposure)
+        return round(
+            min(1.0, exposure),
+            3
+        )
 
-    # --------------------------------------------------------
+
+    # ============================================================
     # Probability of Compromise
-    # --------------------------------------------------------
+    # ============================================================
 
     def calculate_probability_of_compromise(
         self,
@@ -82,30 +115,49 @@ class RiskEngine:
         exposure
     ):
 
-        behavior_anomaly = 1 - behavior_score
-        context_anomaly = 1 - context_score
+        # --------------------------------------------------------
+        # Convert trust-like scores into anomaly scores
+        # --------------------------------------------------------
+
+        behavior_anomaly = 1.0 - behavior_score
+        context_anomaly = 1.0 - context_score
+
+        # --------------------------------------------------------
+        # Weighted probability model
+        # --------------------------------------------------------
 
         probability = (
-            0.35 * behavior_anomaly
-            + 0.20 * context_anomaly
-            + 0.20 * vulnerability
-            + 0.25 * exposure
+            self.behavior_weight * behavior_anomaly
+            + self.context_weight * context_anomaly
+            + self.vulnerability_weight * vulnerability
+            + self.exposure_weight * exposure
+        )
+
+        # Keep probability within [0, 1]
+        probability = max(
+            0.0,
+            min(1.0, probability)
         )
 
         return round(
-            max(0.0, min(1.0, probability)),
+            probability,
             3
         )
 
-    # --------------------------------------------------------
+
+    # ============================================================
     # Impact
-    # --------------------------------------------------------
+    # ============================================================
 
     def calculate_impact(
         self,
         device,
         resource_sensitivity
     ):
+
+        # --------------------------------------------------------
+        # Device criticality
+        # --------------------------------------------------------
 
         device_criticality = {
             "smart_clock": 0.30,
@@ -119,19 +171,35 @@ class RiskEngine:
             0.50
         )
 
+        # --------------------------------------------------------
+        # Impact calculation
+        # --------------------------------------------------------
+        #
+        # Criticality represents importance of the device.
+        #
+        # Resource sensitivity represents how sensitive the
+        # requested resource is.
+        #
+
         impact = (
-            0.60 * criticality
-            + 0.40 * resource_sensitivity
+            self.criticality_weight * criticality
+            + self.sensitivity_weight * resource_sensitivity
+        )
+
+        impact = max(
+            0.0,
+            min(1.0, impact)
         )
 
         return round(
-            max(0.0, min(1.0, impact)),
+            impact,
             3
         )
 
-    # --------------------------------------------------------
+
+    # ============================================================
     # Final Risk
-    # --------------------------------------------------------
+    # ============================================================
 
     def calculate_risk(
         self,
@@ -141,35 +209,70 @@ class RiskEngine:
         data
     ):
 
+        # --------------------------------------------------------
+        # 1. Vulnerability
+        # --------------------------------------------------------
+
         vulnerability = self.calculate_vulnerability(
             device
         )
 
+        # --------------------------------------------------------
+        # 2. Resource sensitivity
+        # --------------------------------------------------------
+
         resource_sensitivity = (
-            self.calculate_resource_sensitivity(data)
+            self.calculate_resource_sensitivity(
+                data
+            )
         )
+
+        # --------------------------------------------------------
+        # 3. Exposure
+        # --------------------------------------------------------
 
         exposure = self.calculate_exposure(
             data
         )
 
+        # --------------------------------------------------------
+        # 4. Probability of compromise
+        # --------------------------------------------------------
+
         probability = (
             self.calculate_probability_of_compromise(
-                behavior_score,
-                context_score,
-                vulnerability,
-                exposure
+                behavior_score=behavior_score,
+                context_score=context_score,
+                vulnerability=vulnerability,
+                exposure=exposure
             )
         )
 
+        # --------------------------------------------------------
+        # 5. Impact
+        # --------------------------------------------------------
+
         impact = self.calculate_impact(
-            device,
-            resource_sensitivity
+            device=device,
+            resource_sensitivity=resource_sensitivity
         )
+
+        # --------------------------------------------------------
+        # 6. Final risk
+        # --------------------------------------------------------
+        #
+        # Risk = Probability × Impact
+        #
 
         risk = probability * impact
 
+        risk = max(
+            0.0,
+            min(1.0, risk)
+        )
+
         return {
+
             "probability_of_compromise": round(
                 probability,
                 3
@@ -205,9 +308,10 @@ class RiskEngine:
             )
         }
 
-    # --------------------------------------------------------
+
+    # ============================================================
     # Risk Status
-    # --------------------------------------------------------
+    # ============================================================
 
     def get_risk_status(self, risk_score):
 

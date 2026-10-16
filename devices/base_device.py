@@ -14,29 +14,52 @@ class BaseDevice:
         location,
         normal_time
     ):
+
         self.device_id = device_id
         self.device_type = device_type
 
-        # Resource capability
+        # ==========================================================
+        # RESOURCE CAPABILITY
+        # ==========================================================
+
         self.cpu = cpu
         self.ram = ram
         self.battery = battery
         self.bandwidth = bandwidth
 
-        # Context
+        # ==========================================================
+        # CONTEXT
+        # ==========================================================
+
         self.location = location
         self.normal_time = normal_time
 
-        # Initial trust
+        # ==========================================================
+        # INITIAL TRUST
+        # ==========================================================
+
         self.trust_score = 0.95
 
-        # Current resource utilization
+        # ==========================================================
+        # CURRENT RESOURCE UTILIZATION
+        # ==========================================================
+
         self.cpu_usage = 0.0
         self.ram_usage = 0.0
         self.bandwidth_usage = 0.0
 
-        # Current battery level
+        # ==========================================================
+        # CURRENT BATTERY LEVEL
+        # ==========================================================
+
         self.battery_level = battery
+
+        # ==========================================================
+        # LATEST MQTT OBSERVATION
+        # ==========================================================
+
+        self.latest_mqtt_data = None
+
 
     # ==========================================================
     # RESOURCE PROFILE
@@ -45,11 +68,16 @@ class BaseDevice:
     def get_resource_profile(self):
 
         return {
+
             "cpu": self.cpu,
+
             "ram": self.ram,
+
             "battery": self.battery,
+
             "bandwidth": self.bandwidth
         }
+
 
     # ==========================================================
     # CONTEXT PROFILE
@@ -58,15 +86,25 @@ class BaseDevice:
     def get_context_profile(self):
 
         return {
-            "location": self.location,
-            "normal_time": self.normal_time
+
+            "location":
+                self.location,
+
+            "normal_time":
+                self.normal_time
         }
+
 
     # ==========================================================
     # CURRENT RESOURCE USAGE
     # ==========================================================
 
     def update_resource_usage(self):
+
+        # ------------------------------------------------------
+        # Until ESP32 resource telemetry is implemented,
+        # resource utilization is estimated locally.
+        # ------------------------------------------------------
 
         self.cpu_usage = round(
             random.uniform(0.1, 0.9),
@@ -83,6 +121,8 @@ class BaseDevice:
             3
         )
 
+        # Simulate gradual battery consumption
+
         battery_drop = random.uniform(
             0.001,
             0.01
@@ -92,6 +132,7 @@ class BaseDevice:
             0.0,
             self.battery_level - battery_drop
         )
+
 
     # ==========================================================
     # CURRENT RESOURCE STATE
@@ -117,6 +158,7 @@ class BaseDevice:
                 self.bandwidth_usage
         }
 
+
     # ==========================================================
     # CURRENT CONTEXT
     # ==========================================================
@@ -131,3 +173,29 @@ class BaseDevice:
             "requested_resource":
                 "sensor_data"
         }
+
+
+    # ==========================================================
+    # UPDATE FROM MQTT
+    # ==========================================================
+
+    def update_from_mqtt(self, mqtt_data):
+
+        if not isinstance(mqtt_data, dict):
+
+            raise ValueError(
+                "MQTT data must be a dictionary"
+            )
+
+        self.latest_mqtt_data = mqtt_data
+
+        return mqtt_data
+
+
+    # ==========================================================
+    # GET LATEST MQTT DATA
+    # ==========================================================
+
+    def get_latest_mqtt_data(self):
+
+        return self.latest_mqtt_data
