@@ -36,12 +36,33 @@ class ForensicAnalyzer:
     # ============================================================
 
     def determine_attack_type(self, event):
+        """Classify integrity evidence conservatively.
 
-        if event.get("attack_type"):
-            return event.get("attack_type")
+        A missing signature means integrity is UNVERIFIED, not that the
+        message was tampered with. A present signature that fails verification
+        is reported as suspected tampering/integrity failure, not as proven
+        attacker activity.
+        """
+        integrity_status = event.get("integrity_status")
 
-        if event.get("tampered", False):
+        # Explicit independently supported confirmation takes precedence over
+        # the generic integrity-failure label. A failed HMAC alone remains only
+        # suspected tampering, because key/configuration errors can also fail it.
+        if event.get("tampering_confirmed", False):
             return "MESSAGE_TAMPERING"
+
+        if integrity_status == "UNVERIFIED":
+            return "INTEGRITY_UNVERIFIED"
+
+        if integrity_status == "FAILED":
+            return "MESSAGE_TAMPERING_SUSPECTED"
+
+        supplied_type = event.get("attack_type")
+        if supplied_type and supplied_type not in {
+            "MESSAGE_TAMPERING", "MESSAGE_TAMPERING_SUSPECTED",
+            "INTEGRITY_UNVERIFIED"
+        }:
+            return supplied_type
 
         if event.get("malicious_activity", False):
             return "DEVICE_COMPROMISE"
@@ -76,8 +97,12 @@ class ForensicAnalyzer:
         if event.get("unauthorized_command", False):
             evidence_score += 0.25
 
-        if event.get("tampered", False):
+        # Only gateway-derived integrity evidence contributes as a
+        # tampering indicator. A raw payload's `tampered` field is untrusted.
+        if event.get("tampering_confirmed", False):
             evidence_score += 0.30
+        elif event.get("integrity_status") == "FAILED":
+            evidence_score += 0.20
 
         # --------------------------------------------------------
         # Strong behavioral anomaly
@@ -261,14 +286,12 @@ class ForensicAnalyzer:
                 "Unauthorized command detected"
             )
 
-        if event.get(
-            "tampered",
-            False
-        ):
-
-            indicators.append(
-                "Message tampering detected"
-            )
+        if event.get("tampering_confirmed", False):
+            indicators.append("Message tampering confirmed by integrity evidence")
+        elif event.get("integrity_status") == "FAILED":
+            indicators.append("Message integrity verification failed; tampering is suspected")
+        elif event.get("integrity_status") == "UNVERIFIED":
+            indicators.append("Message integrity unverified: no usable device-origin signature")
 
         # --------------------------------------------------------
         # Behavioral indicators
@@ -387,9 +410,11 @@ class ForensicAnalyzer:
         # Message tampering
         # --------------------------------------------------------
 
-        if attack_type == "MESSAGE_TAMPERING":
-
+        if attack_type in {"MESSAGE_TAMPERING", "MESSAGE_TAMPERING_SUSPECTED"}:
             return "REJECT_MESSAGE_AND_INVESTIGATE"
+
+        if attack_type == "INTEGRITY_UNVERIFIED":
+            return "REJECT_UNAUTHENTICATED_MESSAGE_AND_MONITOR"
 
         # --------------------------------------------------------
         # Explicit denial
@@ -513,6 +538,14 @@ class ForensicAnalyzer:
             "attack_type":
                 attack_type,
 
+            "integrity_status":
+                event.get("integrity_status", "NOT_PROVIDED"),
+
+            "confirmed_attack": bool(
+                event.get("confirmed_attack", False)
+                or event.get("tampering_confirmed", False)
+            ),
+
             "severity":
                 severity_analysis["severity"],
 
@@ -601,6 +634,11 @@ class ForensicAnalyzer:
         print(
             "Attack Type             :",
             forensic_result["attack_type"]
+        )
+
+        print(
+            "Integrity Status        :",
+            forensic_result.get("integrity_status", "NOT_PROVIDED")
         )
 
         print(

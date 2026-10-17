@@ -1,0 +1,22 @@
+{
+    "evidence_id": "ca462f49-7842-4efb-86c4-f049744d6c9f",
+    "timestamp": 1789740562.6795108,
+    "device_id": "CAMERA_001",
+    "event": {
+        "event_type": "AUTHENTICATION_FAILURE",
+        "authentication": false,
+        "behavior_score": 0.0,
+        "context_score": 0.0,
+        "risk_score": 0.095,
+        "probability_of_compromise": 0.17,
+        "impact": 0.56,
+        "adaptive_trust_score": 0.877,
+        "decision": "DENY",
+        "security_action": "BLOCK_REQUEST"
+    },
+    "trust_score": 0.877,
+    "risk_score": null,
+    "resource_state": null,
+    "device_state": null,
+    "evidence_hash": "bd5ad83390b46c3309470c9d8453b2b2ce626e942f255181b79c6a92820a1940"
+}

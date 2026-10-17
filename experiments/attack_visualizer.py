@@ -6,6 +6,7 @@ The optional scenario label is stored only for post-run visualization/evaluation
 from __future__ import annotations
 
 import csv
+import json
 import os
 from collections.abc import Mapping
 from typing import Any
@@ -18,6 +19,9 @@ FIELDS = [
     "behavior_weight", "context_weight", "history_weight", "risk_weight",
     "evidence_strength", "behavior_penalty_observed", "context_penalty_observed",
     "history_penalty_observed", "risk_elevation_observed", "decision", "security_action",
+    "observation_timestamp", "source", "temperature", "humidity", "motion_detected",
+    "hour", "minute", "second", "fps", "image_size_bytes", "raw_payload",
+    "detection_result", "integrity_status", "device_hmac_valid", "adaptive_weights",
 ]
 
 
@@ -106,6 +110,24 @@ class ExperimentVisualizer:
             "risk_elevation_observed": _number(risk_score),
             "decision": decision_result.get("decision", "UNKNOWN"),
             "security_action": decision_result.get("security_action", "UNKNOWN"),
+            "observation_timestamp": data.get("timestamp") or data.get("_received_at_epoch"),
+            "source": data.get("source"),
+            "temperature": data.get("temperature"),
+            "humidity": data.get("humidity"),
+            "motion_detected": data.get("motion_detected"),
+            "hour": data.get("hour"),
+            "minute": data.get("minute"),
+            "second": data.get("second"),
+            "fps": data.get("fps"),
+            "image_size_bytes": data.get("image_size_bytes"),
+            "raw_payload": data.get("raw_payload"),
+            "detection_result": json.dumps(
+                data.get("device_attack_result", data.get("device_attack_indicators", [])),
+                sort_keys=True, default=str,
+            ),
+            "integrity_status": data.get("integrity_status", "UNVERIFIED"),
+            "device_hmac_valid": data.get("device_hmac_valid"),
+            "adaptive_weights": json.dumps(adaptive_weights, sort_keys=True, default=str),
         })
 
     def save_and_plot(self) -> dict[str, str]:

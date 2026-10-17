@@ -1,5 +1,7 @@
 import json
 import time
+import hashlib
+import hmac
 
 
 class MQTTDeviceAdapter:
@@ -17,6 +19,32 @@ class MQTTDeviceAdapter:
         "CLOCK_001": "smart_clock",
         "CAMERA_001": "camera",
     }
+
+    # Simulation-only keys; must match the ESP32 sketch. Never deploy these keys.
+    DEVICE_HMAC_KEYS = {
+        "CLOCK_001": b"clock_secret_key",
+        "TEMP_001": b"temperature_secret_key",
+        "MOTION_001": b"motion_secret_key",
+        "CAMERA_001": b"camera_secret_key",
+    }
+
+    @classmethod
+    def _verify_device_signature(cls, device_id, payload, parsed_data):
+        """Verify HMAC over the exact raw JSON bytes before the final signature field."""
+        key = cls.DEVICE_HMAC_KEYS.get(device_id)
+        signature = parsed_data.get("message_signature")
+        marker = ',"message_signature":"'
+        if key is None or not isinstance(signature, str) or not isinstance(payload, str):
+            return None
+        marker_index = payload.rfind(marker)
+        if marker_index < 0 or not payload.endswith('"}'):
+            return False if signature else None
+        raw_signature = payload[marker_index + len(marker):-2]
+        if raw_signature != signature or len(raw_signature) != 64:
+            return False
+        signed_payload = payload[:marker_index] + "}"
+        expected = hmac.new(key, signed_payload.encode("utf-8"), hashlib.sha256).hexdigest()
+        return hmac.compare_digest(expected, raw_signature)
 
     def __init__(self):
         # Latest observation for every device.
@@ -159,6 +187,23 @@ class MQTTDeviceAdapter:
             print("[MQTT Adapter] Payload must be a JSON object.")
             return None
 
+        # Verify a device-origin signature over the original MQTT bytes.
+        # Missing signatures are UNVERIFIED, not proof of tampering.
+        device_id_for_verification = data.get("device_id")
+        signature_result = self._verify_device_signature(
+            device_id_for_verification, payload, data
+        )
+        data["device_hmac_valid"] = signature_result
+        data["integrity_status"] = (
+            "VERIFIED" if signature_result is True else
+            "FAILED" if signature_result is False else
+            "UNVERIFIED"
+        )
+        if signature_result is False:
+            print(f"[MQTT INTEGRITY FAILURE] {device_id_for_verification}: device HMAC verification failed.")
+        elif signature_result is None:
+            print(f"[MQTT INTEGRITY UNVERIFIED] {device_id_for_verification}: no verifiable device-origin signature.")
+
         # -------------------------------------------------
         # Device ID
         # -------------------------------------------------
@@ -232,6 +277,9 @@ class MQTTDeviceAdapter:
             # Keep the original payload for forensic analysis
             # and experiment inspection.
             "raw_data": data,
+            "raw_payload": payload,
+            "device_hmac_valid": signature_result,
+            "integrity_status": data.get("integrity_status", "UNVERIFIED"),
         }
 
         observation["message_key"] = message_key
@@ -308,13 +356,20 @@ class MQTTDeviceAdapter:
 
         sequence_number = data.get("sequence_number")
 
-        if sequence_number is not None:
-            self.last_sequence_state[device_id] = {
-                "boot_id": data.get("boot_id", "default"),
-                "sequence_number": sequence_number,
-            }
-        elif data.get("message_id") is not None:
-            self.last_message_keys[device_id] = message_key
+        # Replay/ordering state is security-sensitive. Never let a message
+        # with a missing or failed device-origin HMAC advance the trusted
+        # sequence/message state; otherwise an unauthenticated high sequence
+        # number could poison the state and cause later legitimate messages
+        # to be rejected. The observation itself is retained so the gateway
+        # can DENY it and record the integrity failure.
+        if signature_result is True:
+            if sequence_number is not None:
+                self.last_sequence_state[device_id] = {
+                    "boot_id": data.get("boot_id", "default"),
+                    "sequence_number": sequence_number,
+                }
+            elif data.get("message_id") is not None:
+                self.last_message_keys[device_id] = message_key
 
         self.latest_observations[device_id] = observation
         self.message_count += 1

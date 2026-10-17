@@ -11,8 +11,11 @@ class LightweightCrypto:
         # SIMULATION KEYS
         # ====================================================
         #
-        # In the real IoT implementation, these keys should
-        # be securely provisioned and stored on the device.
+        # In this Python simulator, these keys are simulation-only.
+        # A signature counts as device-origin only if the device/firmware
+        # computes it before publishing. A gateway-generated signature over
+        # an already-received payload does not prove origin authenticity.
+        # Real keys must be securely provisioned and stored on each device.
         #
         # HMAC-SHA256 is being used here for message
         # authentication and integrity.
@@ -180,6 +183,26 @@ class LightweightCrypto:
 
         )
 
+
+    def verify_hmac_raw_payload(self, device_id, raw_payload, received_signature):
+        """Verify a signature over the exact raw JSON bytes signed by firmware.
+
+        The firmware appends message_signature as the final JSON property.
+        This method removes only that final property to recover the signed bytes.
+        """
+        key = self.get_key(device_id)
+        if key is None or not isinstance(raw_payload, str) or not isinstance(received_signature, str):
+            return False
+        marker = ',"message_signature":"'
+        marker_index = raw_payload.rfind(marker)
+        if marker_index < 0 or not raw_payload.endswith('"}'):
+            return False
+        raw_signature = raw_payload[marker_index + len(marker):-2]
+        if raw_signature != received_signature or len(raw_signature) != 64:
+            return False
+        signed_payload = raw_payload[:marker_index] + "}"
+        expected = hmac.new(key, signed_payload.encode("utf-8"), hashlib.sha256).hexdigest()
+        return hmac.compare_digest(expected, raw_signature)
 
     # ========================================================
     # AUTHENTICATE MESSAGE

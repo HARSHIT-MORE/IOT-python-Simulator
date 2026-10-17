@@ -70,7 +70,7 @@ class Gateway:
             )
 
             print(
-                "[GATEWAY] Communication blocked."
+                "[GATEWAY] Message rejected by simulator isolation state; this does not prove network-level blocking."
             )
 
             return {
@@ -85,6 +85,19 @@ class Gateway:
 
         authentication_result = (
             self.verify_message_authentication(data)
+        )
+
+        # Attach gateway-derived verification status for later evidence
+        # collection. These fields are added only AFTER HMAC verification.
+        data = data.copy()
+        data["integrity_status"] = authentication_result.get(
+            "integrity_status", "UNVERIFIED"
+        )
+        data["integrity_verification_performed"] = authentication_result.get(
+            "verification_performed", False
+        )
+        data["tampering_confirmed"] = authentication_result.get(
+            "tampering_confirmed", False
         )
 
         # ====================================================
@@ -195,6 +208,21 @@ class Gateway:
         )
 
         print(
+            "Integrity Status :",
+            authentication_result.get("integrity_status", "UNVERIFIED")
+        )
+        print(
+            "Integrity Detail :",
+            authentication_result.get("reason", "No detail supplied")
+        )
+        print(
+            "Decision Rule    :",
+            decision_analysis.get("decision_rule", "NOT_PROVIDED")
+        )
+        for matched_condition in decision_analysis.get("matched_conditions", []):
+            print("  Decision Evidence:", matched_condition)
+
+        print(
             "Trust Score      :",
             trust_score
         )
@@ -278,17 +306,22 @@ class Gateway:
                         False
                     ),
 
-                "tampered":
-                    data.get(
-                        "tampered",
-                        False
-                    ),
+                # Do not trust the incoming payload's `tampered` field.
+                "tampered": False,
+                "tampering_confirmed": authentication_result.get(
+                    "tampering_confirmed", False
+                ),
+                "confirmed_attack": False,
+                "integrity_status": authentication_result.get(
+                    "integrity_status", "UNVERIFIED"
+                ),
+                "integrity_verification_performed": authentication_result.get(
+                    "verification_performed", False
+                ),
 
-                "attack_type":
-                    data.get(
-                        "attack_type",
-                        "MESSAGE_TAMPERING"
-                    ),
+                "attack_type": authentication_result.get(
+                    "attack_type", "INTEGRITY_UNVERIFIED"
+                ),
 
                 "attack_description":
                     data.get(
@@ -296,16 +329,18 @@ class Gateway:
                         authentication_result["reason"]
                     ),
 
+                # Missing scores mean they were not evaluated; use neutral
+                # defaults rather than inventing abnormal behavior/context.
                 "behavior_score":
                     data.get(
                         "behavior_score",
-                        0.0
+                        1.0
                     ),
 
                 "context_score":
                     data.get(
                         "context_score",
-                        0.0
+                        1.0
                     ),
 
                 "risk_score":
@@ -359,7 +394,7 @@ class Gateway:
                     "DENY",
 
                 "reason":
-                    "Message authentication failed",
+                    authentication_result["reason"],
 
                 "security_action":
                     "BLOCK_REQUEST",
@@ -372,6 +407,9 @@ class Gateway:
 
                 "authentication":
                     False,
+                "integrity_status": authentication_result.get("integrity_status", "UNVERIFIED"),
+                "enforcement_status": "GATEWAY_LOGIC_ONLY",
+                "network_isolation_enforced": False,
 
                 "isolated":
                     False,
@@ -394,10 +432,12 @@ class Gateway:
                     "DENY",
 
                 "reason":
-                    "Message authentication failed",
+                    authentication_result["reason"],
 
                 "action":
-                    "BLOCK_REQUEST",
+                    "REJECT_MESSAGE_AT_GATEWAY",
+                "enforcement_status": "GATEWAY_LOGIC_ONLY",
+                "network_isolation_enforced": False,
 
                 "evidence":
                     evidence,
@@ -505,6 +545,8 @@ class Gateway:
 
                 "action":
                     "ISOLATE_DEVICE",
+                "enforcement_status": "SIMULATOR_LOGICAL_ONLY",
+                "network_isolation_enforced": False,
 
                 "evidence":
                     evidence,
@@ -872,143 +914,103 @@ class Gateway:
     # HMAC VERIFICATION
     # ========================================================
 
-    def verify_message_authentication(
-        self,
-        data
-    ):
+    def verify_message_authentication(self, data):
+        """Verify a device-origin HMAC without mislabeling missing HMACs.
 
-        device_id = data.get(
-            "device_id"
+        MQTT observations preserve the original device payload under
+        `raw_data`; verification must use that payload, not the enriched
+        gateway observation. A missing signature is UNVERIFIED. A supplied
+        signature that fails verification is an integrity failure and only
+        suggests tampering (key mismatch/serialization mismatch are possible).
+        """
+        raw_data = data.get("raw_data")
+        source = raw_data if isinstance(raw_data, dict) else data
+
+        device_id = source.get("device_id", data.get("device_id"))
+        received_signature = source.get(
+            "message_signature", data.get("message_signature")
+        )
+        authentication_status = source.get(
+            "authentication_status", data.get("authentication_status", False)
         )
 
-        received_signature = data.get(
-            "message_signature"
-        )
-
-        authentication_status = data.get(
-            "authentication_status",
-            False
-        )
-
-        # ----------------------------------------------------
-        # Check authentication status
-        # ----------------------------------------------------
-
-        if not authentication_status:
-
-            return {
-
-                "authenticated":
-                    False,
-
-                "reason":
-                    "Sender did not provide authentication"
-            }
-
-        # ----------------------------------------------------
-        # Signature must exist
-        # ----------------------------------------------------
-
+        # `authentication_status` is metadata supplied by the sender, not
+        # cryptographic proof. If a signature exists, verify it regardless of
+        # that flag; if no signature exists, integrity remains unverified.
         if received_signature is None:
-
             return {
-
-                "authenticated":
-                    False,
-
-                "reason":
-                    "Missing HMAC signature"
+                "authenticated": False,
+                "verification_performed": False,
+                "integrity_status": "UNVERIFIED",
+                "tampering_confirmed": False,
+                "attack_type": "INTEGRITY_UNVERIFIED",
+                "reason": "No device-origin HMAC signature supplied; message integrity cannot be verified",
             }
 
-        # ----------------------------------------------------
-        # Reconstruct originally signed message
-        # ----------------------------------------------------
+        # If this crypto implementation cannot find a key, this is a
+        # provisioning/configuration problem, not evidence of tampering.
+        get_key = getattr(self.crypto, "get_key", None)
+        if callable(get_key) and get_key(device_id) is None:
+            return {
+                "authenticated": False,
+                "verification_performed": False,
+                "integrity_status": "UNVERIFIED",
+                "tampering_confirmed": False,
+                "attack_type": "INTEGRITY_UNVERIFIED",
+                "reason": "No verification key provisioned for this device; integrity is unverified",
+            }
 
-        verification_data = data.copy()
+        # For real MQTT observations, verify the exact raw JSON text received
+        # from the device. Re-serializing a parsed dictionary changes property
+        # order/formatting and the adapter enriches `raw_data` with fields that
+        # were not part of the firmware's signature.
+        raw_payload = data.get("raw_payload")
+        verify_raw = getattr(self.crypto, "verify_hmac_raw_payload", None)
+        if isinstance(raw_payload, str) and callable(verify_raw):
+            verified = verify_raw(device_id, raw_payload, received_signature)
+        else:
+            # Backward-compatible path for simulator-generated/legacy callers
+            # that do not carry the original MQTT payload text.
+            verification_data = source.copy()
+            for field in (
+                "authentication_status", "message_signature",
+                "device_hmac_valid", "integrity_status",
+                "integrity_verification_performed", "tampering_confirmed",
+            ):
+                verification_data.pop(field, None)
 
-        verification_data.pop(
-            "authentication_status",
-            None
-        )
+            # For non-raw legacy callers, remove fields generated by the gateway
+            # after the device message was signed.
+            if source is data:
+                for field in (
+                    "adaptive_trust", "risk_analysis", "decision_analysis",
+                    "resource_analysis",
+                ):
+                    verification_data.pop(field, None)
 
-        verification_data.pop(
-            "message_signature",
-            None
-        )
-
-        # ----------------------------------------------------
-        # These fields are generated AFTER HMAC.
-        # They must not affect HMAC verification.
-        # ----------------------------------------------------
-
-        verification_data.pop(
-            "adaptive_trust",
-            None
-        )
-
-        verification_data.pop(
-            "risk_analysis",
-            None
-        )
-
-        verification_data.pop(
-            "decision_analysis",
-            None
-        )
-
-        verification_data.pop(
-            "resource_analysis",
-            None
-        )
-
-        # ----------------------------------------------------
-        # IMPORTANT:
-        #
-        # Do NOT remove:
-        #
-        # tampered
-        # attack_type
-        # attack_description
-        # malicious_activity
-        # unexpected_network
-        # unauthorized_command
-        #
-        # These fields are part of the message when the
-        # attack occurs after HMAC generation.
-        # ----------------------------------------------------
-
-        verified = self.crypto.verify_hmac(
-            device_id,
-            verification_data,
-            received_signature
-        )
-
-        if verified:
-
-            print(
-                "\n[GATEWAY] HMAC verification: SUCCESS"
+            verified = self.crypto.verify_hmac(
+                device_id, verification_data, received_signature
             )
 
+        if verified:
+            print("\n[GATEWAY] Device-origin HMAC verification: SUCCESS")
             return {
-
-                "authenticated":
-                    True,
-
-                "reason":
-                    "Valid HMAC"
+                "authenticated": True,
+                "verification_performed": True,
+                "integrity_status": "VERIFIED",
+                "tampering_confirmed": False,
+                "attack_type": None,
+                "reason": "Device-origin HMAC verified successfully",
             }
 
-        print(
-            "\n[GATEWAY] HMAC verification: FAILED"
-        )
-
+        print("\n[GATEWAY] Device-origin HMAC verification: FAILED")
         return {
-
-            "authenticated":
-                False,
-
-            "reason":
-                "Invalid HMAC or message tampering detected"
+            "authenticated": False,
+            "verification_performed": True,
+            "integrity_status": "FAILED",
+            "tampering_confirmed": False,
+            "attack_type": "MESSAGE_TAMPERING_SUSPECTED",
+            "reason": "Device-origin HMAC verification failed; tampering, key mismatch, or payload serialization mismatch is possible",
         }
 
     # ========================================================
@@ -1084,17 +1086,23 @@ class Gateway:
                     False
                 ),
 
-            "tampered":
-                data.get(
-                    "tampered",
-                    False
-                ),
+            # Payload-supplied `tampered` is not trusted as proof.
+            "tampered": False,
+            "tampering_confirmed": data.get("tampering_confirmed", False),
+            "confirmed_attack": (
+                data.get("integrity_status") == "VERIFIED"
+                and any(
+                    indicator.get("confirmed", False)
+                    for indicator in data.get("device_attack_indicators", [])
+                    if isinstance(indicator, dict)
+                )
+            ),
+            "integrity_status": data.get("integrity_status", "NOT_PROVIDED"),
+            "integrity_verification_performed": data.get(
+                "integrity_verification_performed", False
+            ),
 
-            "attack_type":
-                data.get(
-                    "attack_type",
-                    None
-                ),
+            "attack_type": data.get("attack_type"),
 
             "attack_description":
                 data.get(
@@ -1330,11 +1338,14 @@ class Gateway:
         )
 
         print(
-            f"[GATEWAY] DEVICE {device_id} ISOLATED"
+            f"[GATEWAY] DEVICE {device_id} LOGICALLY ISOLATED IN SIMULATOR"
         )
 
         print(
-            "[GATEWAY] Further communication blocked."
+            "[GATEWAY] Subsequent receive_data calls from this device will be rejected by simulator logic."
+        )
+        print(
+            "[GATEWAY] Network-level isolation is NOT configured or verified."
         )
 
         print(

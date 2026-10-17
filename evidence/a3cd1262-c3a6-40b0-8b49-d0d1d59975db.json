@@ -1,0 +1,31 @@
+{
+    "evidence_id": "a3cd1262-c3a6-40b0-8b49-d0d1d59975db",
+    "timestamp": 1792170942.6873205,
+    "device_id": "CLOCK_001",
+    "event": {
+        "event_type": "AUTHENTICATION_FAILURE",
+        "device_type": "smart_clock",
+        "status": "normal",
+        "malicious_activity": false,
+        "unexpected_network": false,
+        "unauthorized_command": false,
+        "tampered": false,
+        "attack_type": "MESSAGE_TAMPERING",
+        "attack_description": "Invalid HMAC or message tampering detected",
+        "behavior_score": 0.0,
+        "context_score": 0.0,
+        "risk_score": 0.029,
+        "probability_of_compromise": 0.11,
+        "impact": 0.26,
+        "adaptive_trust_score": 0.874,
+        "decision": "DENY",
+        "security_action": "BLOCK_REQUEST",
+        "rcf": 0.55,
+        "resource_pressure": 0.423
+    },
+    "trust_score": 0.874,
+    "risk_score": null,
+    "resource_state": null,
+    "device_state": null,
+    "evidence_hash": "fbd23e78bf2f5979410c7e56379ffba7ee7111e9cba1bd57fa404c8e2b8363b5"
+}

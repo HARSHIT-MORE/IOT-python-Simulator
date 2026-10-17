@@ -4,7 +4,6 @@ import threading
 import paho.mqtt.client as mqtt
 
 from iot.mqtt_adapter import MQTTDeviceAdapter
-from experiments.attack_visualizer import ExperimentVisualizer
 
 
 
@@ -108,7 +107,7 @@ from gateway.decision_engine import DecisionEngine
 
 
 
-from security.attack_simulator import AttackSimulator
+from security.device_attack_detector import DeviceAttackDetector
 
 
 
@@ -131,6 +130,7 @@ from security.crypto import LightweightCrypto
 
 
 from experiments.metrics import SecurityMetrics
+from experiments.attack_visualizer import ExperimentVisualizer
 
 
 
@@ -180,7 +180,8 @@ decision_engine = DecisionEngine()
 
 
 
-attack_simulator = AttackSimulator()
+device_attack_detector = DeviceAttackDetector()
+last_processed_observation_keys = {}
 
 
 
@@ -203,10 +204,7 @@ crypto = LightweightCrypto()
 
 
 metrics = SecurityMetrics()
-
-experiment_visualizer = ExperimentVisualizer(
-    output_dir="experiments/results"
-)
+visualizer = ExperimentVisualizer()
 
 
 
@@ -347,63 +345,13 @@ for device in devices:
 
 
 # ============================================================
-
-# SIMULATION CONFIGURATION
-
+# LIVE DEVICE TELEMETRY CONFIGURATION
 # ============================================================
 
-
-
+# The loop processes only new MQTT observations. No attack is
+# declared merely because a round number has been reached.
 TOTAL_ROUNDS = 15
-
-
-
-
-
-# ------------------------------------------------------------
-
-# Device compromise starts at this round
-
-# ------------------------------------------------------------
-
-
-
-ATTACK_ROUND = 6
-
-
-
-
-
-# ------------------------------------------------------------
-
-# Device that will be compromised
-
-# ------------------------------------------------------------
-
-
-
-ATTACKED_DEVICE = "MOTION_001"
-
-
-
-
-
-# ------------------------------------------------------------
-
-# Controlled message tampering
-
-# ------------------------------------------------------------
-
-
-
-TAMPERING_ROUND = 10
-
-
-
-TAMPERING_DEVICE = "CAMERA_001"
-
-
-
+LIVE_TELEMETRY_ONLY = True
 
 
 # ============================================================
@@ -434,43 +382,8 @@ print("=" * 80)
 
 
 
-print(
-
-    f"\nTotal Simulation Rounds : {TOTAL_ROUNDS}"
-
-)
-
-
-
-print(
-
-    f"Compromise Starts       : Round {ATTACK_ROUND}"
-
-)
-
-
-
-print(
-
-    f"Compromised Device      : {ATTACKED_DEVICE}"
-
-)
-
-
-
-print(
-
-    f"Tampering Round         : {TAMPERING_ROUND}"
-
-)
-
-
-
-print(
-
-    f"Tampered Device         : {TAMPERING_DEVICE}"
-
-)
+print(f"\nLive telemetry rounds     : {TOTAL_ROUNDS}")
+print("Attack labels             : derived from observed evidence; no scheduled attack injection")
 
 
 
@@ -486,112 +399,454 @@ print("=" * 80)
 
 MQTT_BROKER = "test.mosquitto.org"
 MQTT_PORT = 1883
-# Subscribe to every ESP32/Wokwi device topic, not only temperature.
-MQTT_TOPIC = "harshit/iot/#"
-EXPECTED_MQTT_DEVICES = {
-    "TEMP_001", "MOTION_001", "CLOCK_001", "CAMERA_001"
-}
-MQTT_STARTUP_TIMEOUT = 60
 
+# Subscribe to all ESP32/Wokwi device topics.
+MQTT_TOPIC = "harshit/iot/#"
+
+
+# ============================================================
+# MQTT ADAPTER
+# ============================================================
+
+# Stores the latest observation for every ESP32 device.
 mqtt_adapter = MQTTDeviceAdapter()
-received_mqtt_devices = set()
-all_expected_mqtt_devices_received = threading.Event()
+
+
+def wait_for_new_observation(device_id, previous_key, timeout_seconds=12):
+    """Wait for a fresh MQTT message with a new device-generated identity."""
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        candidate = mqtt_adapter.get_fresh_observation(device_id)
+        if candidate is not None:
+            key = candidate.get("message_key") or candidate.get("_received_at_monotonic")
+            if key is not None and key != previous_key:
+                return candidate
+        time.sleep(0.2)
+    return None
+
 
 
 # ============================================================
 # MQTT CALLBACKS
 # ============================================================
 
-def mqtt_on_connect(client, userdata, flags, reason_code, properties):
+def mqtt_on_connect(
+    client,
+    userdata,
+    flags,
+    reason_code,
+    properties
+):
+
+    global mqtt_connected
+
     if reason_code == 0:
-        print("\n[MQTT] Connected to MQTT broker")
-        result, mid = client.subscribe(MQTT_TOPIC)
-        print(f"[MQTT] Subscribed to: {MQTT_TOPIC} (result={result})")
+
+        mqtt_connected = True
+
+        print(
+            "\n[MQTT] Connected to MQTT broker"
+        )
+
+        client.subscribe(
+            MQTT_TOPIC
+        )
+
+        print(
+            f"[MQTT] Subscribed to: {MQTT_TOPIC}"
+        )
+
     else:
-        print(f"[MQTT] Connection failed: {reason_code}")
+
+        print(
+            f"[MQTT] Connection failed: {reason_code}"
+        )
 
 
-def mqtt_on_message(client, userdata, msg):
-    # A retained message may be an old value left on the public broker
-    # from a previous Wokwi run. It is NOT proof that Wokwi is running now.
-    if msg.retain:
-        print(f"[MQTT] Ignoring retained/stored message on {msg.topic}; waiting for live Wokwi publish.")
-        return
+def mqtt_on_message(
+    client,
+    userdata,
+    msg
+):
 
-    topic_device_id = msg.topic.rsplit("/", 1)[-1]
-    if topic_device_id not in EXPECTED_MQTT_DEVICES:
-        print(f"[MQTT] Ignoring unexpected topic: {msg.topic}")
-        return
+    payload = msg.payload.decode(
+        "utf-8",
+        errors="replace"
+    )
 
-    payload = msg.payload.decode("utf-8", errors="replace")
-    # MQTTDeviceAdapter.process_message requires both topic and payload.
-    observation = mqtt_adapter.process_message(msg.topic, payload)
+    print(
+        f"\n[MQTT] Message received | Topic: {msg.topic}"
+    )
+
+    print(
+        f"[MQTT] Payload: {payload}"
+    )
+
+    # The adapter requires both the MQTT topic and payload.
+    observation = mqtt_adapter.process_message(
+        msg.topic,
+        payload
+    )
+
     if observation is None:
-        print(f"[MQTT] Could not parse message on {msg.topic}")
+        print("[MQTT] Adapter rejected the observation.")
         return
 
-    device_id = observation.get("device_id", "UNKNOWN")
-    if device_id != topic_device_id:
-        print(f"[MQTT] Rejecting topic/payload mismatch: topic says {topic_device_id}, payload says {device_id}")
-        return
-    if device_id not in EXPECTED_MQTT_DEVICES:
-        print(f"[MQTT] Ignoring unknown device ID: {device_id}")
-        return
+    # A real device packet has reached the Python input layer.
+    mqtt_message_event.set()
 
-    received_mqtt_devices.add(device_id)
-    print(f"\n[MQTT] RECEIVED topic={msg.topic} device={device_id} "
-          f"type={observation.get('device_type')} source=MQTT")
+    device_id = observation.get(
+        "device_id",
+        "UNKNOWN"
+    )
 
-    if device_id == "TEMP_001":
-        print(f"[MQTT] temperature={observation.get('temperature')} C, "
-              f"humidity={observation.get('humidity')} %")
-    elif device_id == "MOTION_001":
-        print(f"[MQTT] motion_detected={observation.get('motion_detected')}")
-    elif device_id == "CLOCK_001":
-        print(f"[MQTT] clock={observation.get('hour')}:"
-              f"{observation.get('minute')}:"
-              f"{observation.get('second')}")
-    elif device_id == "CAMERA_001":
-        print(f"[MQTT] object_detected={observation.get('object_detected')}, "
-              f"fps={observation.get('fps')}, "
-              f"image_size_bytes={observation.get('image_size_bytes')}")
+    device_type = observation.get(
+        "device_type",
+        "unknown"
+    )
 
-    missing = EXPECTED_MQTT_DEVICES - received_mqtt_devices
-    print(f"[MQTT] Device startup status: received={len(received_mqtt_devices)}/"
-          f"{len(EXPECTED_MQTT_DEVICES)}; missing={sorted(missing)}")
-    if not missing:
-        all_expected_mqtt_devices_received.set()
+    # Record that this real device has produced at least one
+    # accepted MQTT observation. This is used only for startup
+    # synchronization, never for trust/risk/decision logic.
+    if device_id in EXPECTED_MQTT_DEVICES:
+        # Startup synchronization requires a verifiable device-origin message.
+        # An unsigned/stale publisher on the public test broker must not satisfy
+        # the readiness condition merely by reusing an expected device_id.
+        if observation.get("device_hmac_valid") is True:
+            received_mqtt_devices.add(device_id)
+        else:
+            print(
+                f"[MQTT STARTUP] {device_id} message is not HMAC-verified; "
+                "waiting for an authenticated device reading."
+            )
+
+        if received_mqtt_devices >= EXPECTED_MQTT_DEVICES:
+            all_expected_devices_event.set()
+
+    print(
+        f"\n[MQTT] New observation: "
+        f"{device_id} ({device_type})"
+    )
+
+    if device_type == "temperature_sensor":
+
+        print(
+            f"[MQTT] Temperature: "
+            f"{observation.get('temperature')} °C"
+        )
+
+        print(
+            f"[MQTT] Humidity: "
+            f"{observation.get('humidity')} %"
+        )
+
+    elif device_type == "motion_sensor":
+
+        print(
+            f"[MQTT] Motion: "
+            f"{observation.get('motion_detected')}"
+        )
+
+    elif device_type == "smart_clock":
+
+        print(
+            f"[MQTT] Time: "
+            f"{observation.get('hour')}:"
+            f"{observation.get('minute')}:"
+            f"{observation.get('second')}"
+        )
+
+    elif device_type == "camera":
+
+        print(
+            f"[MQTT] Object detected: "
+            f"{observation.get('object_detected')}"
+        )
+
+        print(
+            f"[MQTT] FPS: "
+            f"{observation.get('fps')}"
+        )
+
+        print(
+            f"[MQTT] Image size: "
+            f"{observation.get('image_size_bytes')} bytes"
+        )
 
 
 # ============================================================
-# MQTT CLIENT AND STRICT STARTUP CHECK
+# MQTT CLIENT
 # ============================================================
 
-mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+mqtt_client = mqtt.Client(
+    mqtt.CallbackAPIVersion.VERSION2
+)
+
 mqtt_client.on_connect = mqtt_on_connect
 mqtt_client.on_message = mqtt_on_message
 
-try:
-    print(f"[MQTT] Connecting to {MQTT_BROKER}:{MQTT_PORT}...")
-    mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
-    mqtt_client.loop_start()
-except Exception as exc:
-    raise SystemExit(f"[MQTT] Connection could not be started: {exc}")
+# MQTT is the external device-input layer. The existing
+# behavior, context, history, risk, adaptive-weight, trust,
+# decision, forensic, and recovery pipeline remains intact.
+#
+# HMAC generation is still performed by the existing crypto
+# module after the MQTT observation is received. This keeps
+# compatibility with the current simulator architecture.
+#
+# For a future true end-to-end hardware experiment, the ESP32
+# should generate its own HMAC and the gateway should verify
+# that device-generated signature instead of re-signing data.
+# MQTT connection state.
+mqtt_connected = False
+mqtt_connected_event = threading.Event()
+mqtt_message_event = threading.Event()
 
-print(f"[MQTT] Waiting up to {MQTT_STARTUP_TIMEOUT}s for LIVE (non-retained) messages from all four Wokwi devices...")
-if not all_expected_mqtt_devices_received.wait(MQTT_STARTUP_TIMEOUT):
-    missing = EXPECTED_MQTT_DEVICES - received_mqtt_devices
-    mqtt_client.loop_stop()
-    mqtt_client.disconnect()
-    raise SystemExit(
-        "[MQTT] STARTUP FAILED: no simulation was run because readings were "
-        f"not received from every expected device. Missing: {sorted(missing)}. "
-        "Retained messages are ignored. Start the Wokwi ESP32 simulation and check that it is actively publishing to harshit/iot/<DEVICE_ID>. "
-        "and the broker/port are correct."
+# Devices expected from the combined ESP32/Wokwi sketch.
+EXPECTED_MQTT_DEVICES = {
+    "TEMP_001",
+    "MOTION_001",
+    "CLOCK_001",
+    "CAMERA_001"
+}
+
+received_mqtt_devices = set()
+all_expected_devices_event = threading.Event()
+
+# Real-hardware mode: do not silently replace missing MQTT data
+# with generated simulator data.
+REQUIRE_MQTT_DATA = True
+
+# Startup controls.
+MQTT_CONNECT_TIMEOUT = 60
+MQTT_FIRST_MESSAGE_TIMEOUT = 60
+MQTT_ALL_DEVICES_TIMEOUT = 60
+MQTT_RETRY_DELAY = 2
+
+
+# ============================================================
+# MQTT STARTUP
+# ============================================================
+
+def wait_for_mqtt_ready(timeout_seconds=MQTT_CONNECT_TIMEOUT):
+    """
+    Wait until the MQTT on_connect callback confirms that the
+    broker connection and subscription are ready.
+
+    If the connection is not ready within the timeout, retry the
+    MQTT connection instead of starting the experiment early.
+    """
+
+    global mqtt_connected
+
+    deadline = time.time() + timeout_seconds
+
+    while not mqtt_connected and time.time() < deadline:
+        mqtt_connected_event.wait(timeout=0.5)
+
+    if mqtt_connected:
+        print("[MQTT] MQTT input layer is ready.")
+        return True
+
+    print(
+        "[MQTT] MQTT connection did not become ready within "
+        f"{timeout_seconds} seconds."
+    )
+    return False
+
+
+def wait_for_first_mqtt_message(timeout_seconds=MQTT_FIRST_MESSAGE_TIMEOUT):
+    """Wait for at least one actual ESP32/Wokwi MQTT message."""
+
+    print(
+        "[MQTT] Waiting for the first ESP32/Wokwi observation "
+        f"(timeout={timeout_seconds}s)..."
     )
 
-print("\n[MQTT] STARTUP COMPLETE — readings received for all devices:")
-print(f"[MQTT] {sorted(received_mqtt_devices & EXPECTED_MQTT_DEVICES)}")
+    if mqtt_message_event.wait(timeout_seconds):
+        print("[MQTT] First real device observation received.")
+        return True
+
+    print("\n" + "=" * 80)
+    print("[MQTT ERROR] No MQTT device message was received.")
+    print("=" * 80)
+    print("Check:")
+    print("  1. Wokwi ESP32 simulation is RUNNING.")
+    print("  2. ESP32 shows 'MQTT connected!'.")
+    print("  3. ESP32 shows 'MQTT message sent:'.")
+    print("  4. The topic starts with: harshit/iot/")
+    print("  5. Wokwi and Python main.py run at the same time.")
+    print("=" * 80)
+    return False
+
+
+def wait_for_all_expected_devices(
+    timeout_seconds=MQTT_ALL_DEVICES_TIMEOUT
+):
+    """
+    Wait until every device expected by the current combined
+    ESP32/Wokwi experiment has published at least one observation.
+
+    This makes Round 1 deterministic: the experiment does not
+    begin while some real devices are still missing.
+    """
+
+    print(
+        "[MQTT] Waiting for all expected devices: "
+        f"{sorted(EXPECTED_MQTT_DEVICES)} "
+        f"(timeout={timeout_seconds}s)..."
+    )
+
+    deadline = time.time() + timeout_seconds
+
+    while time.time() < deadline:
+
+        missing = EXPECTED_MQTT_DEVICES - received_mqtt_devices
+
+        if not missing:
+            all_expected_devices_event.set()
+
+            print(
+                "[MQTT] All expected device observations received."
+            )
+            return True
+
+        all_expected_devices_event.wait(timeout=0.5)
+
+    missing = EXPECTED_MQTT_DEVICES - received_mqtt_devices
+
+    print("\n" + "=" * 80)
+    print("[MQTT ERROR] Not all expected devices were received.")
+    print(f"[MQTT ERROR] Missing devices: {sorted(missing)}")
+    print("=" * 80)
+    print("Received devices:")
+    print(f"  {sorted(received_mqtt_devices)}")
+    print("=" * 80)
+
+    return False
+
+
+def establish_mqtt_startup():
+    """
+    Establish the MQTT input layer before Round 1.
+
+    The important research rule is:
+        MQTT startup time is NOT counted as an experiment round.
+
+    Round 1 starts only after MQTT is connected and the required
+    real-device observations have arrived.
+    """
+
+    global mqtt_connected
+
+    print("\n[MQTT] Starting MQTT input layer...")
+
+    # Start the MQTT network loop before attempting connection so
+    # asynchronous connection/message callbacks are serviced.
+    mqtt_client.loop_start()
+
+    connection_deadline = time.time() + MQTT_CONNECT_TIMEOUT
+
+    while not mqtt_connected:
+
+        try:
+            mqtt_connected_event.clear()
+
+            print(
+                f"[MQTT] Connecting to {MQTT_BROKER}:{MQTT_PORT}..."
+            )
+
+            mqtt_client.connect(
+                MQTT_BROKER,
+                MQTT_PORT,
+                60
+            )
+
+            remaining = max(
+                0.1,
+                connection_deadline - time.time()
+            )
+
+            if wait_for_mqtt_ready(remaining):
+                break
+
+        except Exception as exc:
+            print(f"[MQTT] Connection attempt failed: {exc}")
+
+        if time.time() >= connection_deadline:
+            print(
+                "[MQTT ERROR] Could not establish MQTT connection "
+                f"within {MQTT_CONNECT_TIMEOUT} seconds."
+            )
+            return False
+
+        print(
+            f"[MQTT] Retrying in {MQTT_RETRY_DELAY} seconds..."
+        )
+
+        try:
+            mqtt_client.disconnect()
+        except Exception:
+            pass
+
+        time.sleep(MQTT_RETRY_DELAY)
+
+    # A connected broker is not enough. We also need real device
+    # observations before starting the first experiment round.
+    if REQUIRE_MQTT_DATA:
+
+        if not wait_for_first_mqtt_message(
+            MQTT_FIRST_MESSAGE_TIMEOUT
+        ):
+            return False
+
+        if not wait_for_all_expected_devices(
+            MQTT_ALL_DEVICES_TIMEOUT
+        ):
+            return False
+
+    print("\n" + "=" * 80)
+    print("[MQTT] STARTUP COMPLETE")
+    print("[MQTT] Broker connection: READY")
+    print(
+        "[MQTT] Real device observations: "
+        f"{sorted(received_mqtt_devices)}"
+    )
+    print("[MQTT] Starting experiment at ROUND 1.")
+    print("=" * 80)
+
+    return True
+
+
+# ============================================================
+# START MQTT BEFORE ROUND 1
+# ============================================================
+
+try:
+
+    mqtt_startup_ready = establish_mqtt_startup()
+
+    if REQUIRE_MQTT_DATA and not mqtt_startup_ready:
+
+        mqtt_client.loop_stop()
+
+        raise SystemExit(
+            "\n[STOPPED] MQTT startup was not completed. "
+            "The hardware experiment was not started."
+        )
+
+except SystemExit:
+    raise
+
+except Exception as exc:
+
+    try:
+        mqtt_client.loop_stop()
+    except Exception:
+        pass
+
+    raise SystemExit(
+        f"\n[STOPPED] MQTT startup failed: {exc}"
+    )
 
 
 # ============================================================
@@ -629,88 +884,6 @@ for round_number in range(
 
 
     print("=" * 80)
-
-
-
-
-
-    # ========================================================
-
-    # DEVICE COMPROMISE
-
-    # ========================================================
-
-
-
-    if round_number == ATTACK_ROUND:
-
-
-
-        print("\n")
-
-
-
-        print("*" * 80)
-
-
-
-        print(
-
-            f"[ATTACK] Compromising device: "
-
-            f"{ATTACKED_DEVICE}"
-
-        )
-
-
-
-        attack_simulator.compromise_device(
-
-
-
-            ATTACKED_DEVICE
-
-        )
-
-
-
-        print("*" * 80)
-
-
-
-
-
-    # ========================================================
-
-    # MESSAGE TAMPERING EVENT
-
-    # ========================================================
-
-
-
-    if round_number == TAMPERING_ROUND:
-
-
-
-        print("\n")
-
-
-
-        print("*" * 80)
-
-
-
-        print(
-
-            f"[ATTACK] Message tampering scheduled for: "
-
-            f"{TAMPERING_DEVICE}"
-
-        )
-
-
-
-        print("*" * 80)
 
 
 
@@ -779,40 +952,101 @@ for round_number in range(
         # ====================================================
 
         # ====================================================
-        # 2. RECEIVE DEVICE DATA FROM MQTT
+        # 2. GENERATE / RECEIVE DEVICE DATA
         # ====================================================
 
-        # mqtt_data = mqtt_adapter.get_latest_observation(device_id)
-
+        # Every device can now be driven by its ESP32/Wokwi
+        # MQTT observation. If no MQTT observation has arrived
+        # yet, the original simulator is used as a fallback.
         mqtt_data = mqtt_adapter.get_fresh_observation(
-            device_id,
-            max_age_seconds=15
+            device_id
         )
 
         if mqtt_data is not None:
+
             data = mqtt_data.copy()
 
             print(
-                f"[2] {device_id} received fresh MQTT data. "
-                f"Age={data['message_age_seconds']}s"
+                f"[2] {device_id} data received "
+                f"through ESP32/MQTT."
             )
 
-        if mqtt_data is not None and device_id in EXPECTED_MQTT_DEVICES:
+            observation_key = data.get("message_key") or data.get("_received_at_monotonic")
+            if observation_key is None:
+                print(f"[MQTT] {device_id}: no unique observation identity; skipping to avoid repeated scoring.")
+                continue
+            if last_processed_observation_keys.get(device_id) == observation_key:
+                print(f"[MQTT] {device_id}: waiting for a new unique device reading.")
+                mqtt_data = wait_for_new_observation(
+                    device_id, last_processed_observation_keys.get(device_id), timeout_seconds=12
+                )
+                if mqtt_data is None:
+                    print(f"[MQTT] {device_id}: no new reading within 12 seconds; skipping this round.")
+                    continue
+                data = mqtt_data.copy()
+                observation_key = data.get("message_key") or data.get("_received_at_monotonic")
+            last_processed_observation_keys[device_id] = observation_key
+
+        elif REQUIRE_MQTT_DATA:
+
+            print(
+                f"[2] No MQTT observation for {device_id}; "
+                "waiting for a real device message."
+            )
+
+            deadline = time.time() + 10
+
+            while time.time() < deadline:
+                mqtt_data = mqtt_adapter.get_fresh_observation(
+                    device_id
+                )
+
+                if mqtt_data is not None:
+                    break
+
+                time.sleep(0.2)
+
+            if mqtt_data is None:
+                print(
+                    f"[MQTT] No real observation for {device_id}; "
+                    "skipping this device for this round."
+                )
+                continue
+
             data = mqtt_data.copy()
-            data["source"] = "MQTT"
-            print(f"[2] {device_id} observation source: MQTT")
-            print(f"[2] MQTT payload fields: "
-                  f"{ {k: v for k, v in data.items() if k != 'raw_data'} }")
-        else:
-            # Strict mode: do not quietly replace missing live readings
-            # with synthetic readings in a hardware-in-the-loop experiment.
-            raise RuntimeError(
-                f"[MQTT] No MQTT observation available for {device_id}; "
-                "refusing to silently use simulated data."
+
+            print(
+                f"[2] {device_id} data received "
+                "through ESP32/MQTT."
             )
 
+            observation_key = data.get("message_key") or data.get("_received_at_monotonic")
+            if observation_key is None:
+                print(f"[MQTT] {device_id}: no unique observation identity; skipping to avoid repeated scoring.")
+                continue
+            if last_processed_observation_keys.get(device_id) == observation_key:
+                print(f"[MQTT] {device_id}: waiting for a new unique device reading.")
+                mqtt_data = wait_for_new_observation(
+                    device_id, last_processed_observation_keys.get(device_id), timeout_seconds=12
+                )
+                if mqtt_data is None:
+                    print(f"[MQTT] {device_id}: no new reading within 12 seconds; skipping this round.")
+                    continue
+                data = mqtt_data.copy()
+                observation_key = data.get("message_key") or data.get("_received_at_monotonic")
+            last_processed_observation_keys[device_id] = observation_key
 
-        # ====================================================
+        else:
+
+            data = device.generate_data()
+
+            data["source"] = "SIMULATOR_FALLBACK"
+
+            print(
+                f"[2] No MQTT observation for {device_id}; "
+                f"using simulator fallback."
+            )
+
 
         # 3. ADD CURRENT CONTEXT
 
@@ -852,274 +1086,54 @@ for round_number in range(
 
         # ====================================================
 
-        # 4. CHECK ATTACK GROUND TRUTH
-
+        # 4. INSPECT THE RECEIVED DEVICE READING
         #
-
-        # IMPORTANT:
-
-        #
-
-        # This is used ONLY for generating the controlled
-
-        # attack scenario and later evaluating detection.
-
-        #
-
-        # It is NOT passed to HistoryManager.
-
-        # It is NOT used by TrustEngine.
-
-        # It is NOT used by DecisionEngine.
-
+        # This detector evaluates only the payload received from
+        # MQTT plus gateway-known context. It does not inject attacks
+        # and does not use a scheduled round as attack ground truth.
         # ====================================================
 
+        device_attack_result = device_attack_detector.analyze(data)
 
-
-        compromised = (
-
-
-
-            attack_simulator.is_compromised(
-
-
-
-                device_id
-
+        for indicator in device_attack_result["indicators"]:
+            print(
+                "[DEVICE EVIDENCE]",
+                indicator["attack_type"],
+                "| condition:", indicator["condition"],
+                "| observed:", indicator["observed"],
+                "| threshold:", indicator["threshold"],
+                "| penalty:", indicator["penalty"],
+                "| classification:", indicator["classification"],
             )
 
-        )
-
-
+        if not device_attack_result["indicators"]:
+            print("[DEVICE EVIDENCE] No configured anomaly condition triggered by this reading.")
 
         print(
-
-
-
-            "[4] Attack ground truth:",
-
-
-
-            compromised
-
+            "[DEVICE EVIDENCE] Attack confirmed:",
+            device_attack_result["confirmed_attack"],
+            "| anomaly:", device_attack_result["anomaly_detected"],
         )
 
-
-
-
-
-        # ====================================================
-
-        # 5. GENERATE MALICIOUS BEHAVIOR
-
-        # ====================================================
-
-
-
-        if compromised:
-
-
-
-            data = (
-
-
-
-                attack_simulator.generate_malicious_data(
-
-
-
-                    data
-
-                )
-
-            )
-
-
-
-            print(
-
-
-
-                "[5] Malicious behavior generated."
-
-            )
-
-
-
-        else:
-
-
-
-            print(
-
-
-
-                "[5] Normal device behavior."
-
-            )
-
-
-
-
-
-        # ====================================================
-
-        # 6. GENERATE HMAC
-
-        # ====================================================
-
-
-
-        crypto_result = (
-
-
-
-            crypto.authenticate_message(
-
-
-
-                device_id,
-
-
-
-                data
-
-            )
-
-        )
-
-
-
-        data[
-
-
-
-            "authentication_status"
-
-
-
-        ] = (
-
-
-
-            crypto_result[
-
-
-
-                "authenticated"
-
-            ]
-
-        )
-
-
-
-        data[
-
-
-
-            "message_signature"
-
-
-
-        ] = (
-
-
-
-            crypto_result[
-
-
-
-                "signature"
-
-            ]
-
-        )
-
-
-
+        # Use the verification result computed over the exact original MQTT
+        # payload by MQTTDeviceAdapter. Never re-sign a received message at
+        # the gateway and present that as device-origin authentication.
+        raw_device_payload = data.get("raw_data", {})
+        device_hmac_valid = raw_device_payload.get("device_hmac_valid")
+        data["authentication_status"] = (device_hmac_valid is True)
+        data["message_signature"] = raw_device_payload.get("message_signature")
+        data["device_source_authenticated"] = (device_hmac_valid is True)
+        data["integrity_status"] = raw_device_payload.get("integrity_status", "UNVERIFIED")
         print(
-
-
-
-            "[6] HMAC authentication generated."
-
+            "[6] Device-origin integrity:",
+            data["integrity_status"],
+            "| timestamp authenticated with payload:",
+            device_hmac_valid is True,
         )
 
-
-
-
-
-        # ====================================================
-
-        # 7. CONTROLLED MESSAGE TAMPERING
-
-        # ====================================================
-
-
-
-        tampering_attack = (
-
-
-
-            round_number == TAMPERING_ROUND
-
-
-
-            and
-
-
-
-            device_id == TAMPERING_DEVICE
-
-        )
-
-
-
-        if tampering_attack:
-
-
-
-            data = (
-
-
-
-                attack_simulator.tamper_message(
-
-
-
-                    data
-
-                )
-
-            )
-
-
-
-            print(
-
-
-
-                "[7] Message was tampered AFTER HMAC generation."
-
-            )
-
-
-
-        else:
-
-
-
-            print(
-
-
-
-                "[7] No message tampering."
-
-            )
-
-
-
+        # Feed measured anomaly penalties into behavior scoring.
+        data["device_attack_indicators"] = device_attack_result["indicators"]
+        data["device_attack_result"] = device_attack_result
 
 
         # ====================================================
@@ -1270,53 +1284,26 @@ for round_number in range(
 
 
 
+        behavior_score = min(
+            float(behavior_score),
+            float(device_attack_result["behavior_score"]),
+        )
+        behavior_result["behavior_score"] = behavior_score
+        behavior_result["behavior_status"] = (
+            "NORMAL" if behavior_score >= 0.80 else
+            "SLIGHTLY_ABNORMAL" if behavior_score >= 0.60 else
+            "SUSPICIOUS" if behavior_score >= 0.40 else
+            "HIGHLY_ABNORMAL"
+        )
+        behavior_status = behavior_result["behavior_status"]
+
         anomaly = (
-
-
-
             behavior_score < 0.80
-
-
-
-            or
-
-
-
-            context_score < 0.80
-
-
-
-            or
-
-
-
-            data.get(
-
-
-
-                "malicious_activity",
-
-
-
-                False
-
-            )
-
+            or context_score < 0.80
+            or device_attack_result["anomaly_detected"]
         )
 
-
-
-        print(
-
-
-
-            "[10] Anomaly status:",
-
-
-
-            anomaly
-
-        )
+        print("[10] Anomaly status:", anomaly)
 
 
 
@@ -1325,69 +1312,15 @@ for round_number in range(
         # ====================================================
 
         # 11. DETERMINE OBSERVATION SUCCESS
-
+        # Success is based on observed scores, not scheduled attack labels.
         # ====================================================
 
-
-
         observation_success = (
-
-
-
             behavior_score >= 0.80
-
-
-
-            and
-
-
-
-            context_score >= 0.80
-
-
-
-            and
-
-
-
-            not data.get(
-
-
-
-                "malicious_activity",
-
-
-
-                False
-
-            )
-
-
-
-            and
-
-
-
-            not tampering_attack
-
+            and context_score >= 0.80
+            and not device_attack_result["anomaly_detected"]
         )
-
-
-
-        print(
-
-
-
-            "[11] Observation success:",
-
-
-
-            observation_success
-
-        )
-
-
-
+        print("[11] Observation success:", observation_success)
 
 
         # ====================================================
@@ -1400,13 +1333,7 @@ for round_number in range(
 
         #
 
-        # compromised is intentionally NOT passed here.
-
-        #
-
-        # This prevents attack ground truth from influencing
-
-        # historical trust.
+        # No attack ground-truth label is passed into history.
 
         # ====================================================
 
@@ -2148,32 +2075,30 @@ for round_number in range(
 
         )
 
+        # Required device-origin integrity verification takes precedence over
+        # adaptive trust. A failed/missing HMAC is not proof of attacker intent,
+        # but the message must still be denied. Separately, explicitly confirmed
+        # policy violations also override a trust-score ALLOW.
+        if data.get("device_hmac_valid") is not True:
+            decision = "DENY"
+            decision_reason = "Device-origin message integrity is not verified"
+            security_action = "REJECT_MESSAGE_AT_GATEWAY"
+            decision_result["decision"] = decision
+            decision_result["reason"] = decision_reason
+            decision_result["security_action"] = security_action
+            decision_result["requires_evidence"] = True
+            print("[ZERO-TRUST OVERRIDE] Missing/failed device HMAC forces DENY.")
+        elif device_attack_result["confirmed_attack"]:
+            decision = "DENY"
+            decision_reason = "Directly observed device policy violation"
+            security_action = "BLOCK_REQUEST"
+            decision_result["decision"] = decision
+            decision_result["reason"] = decision_reason
+            decision_result["security_action"] = security_action
+            decision_result["requires_evidence"] = True
+            print("[ZERO-TRUST OVERRIDE] Direct policy evidence forces DENY.")
 
 
-        # Round-level diagnostics. Scenario labels are stored for plotting only;
-        # they are never passed to the trust or decision engines.
-        if tampering_attack:
-            scenario_label = "MESSAGE_TAMPERING"
-        elif compromised:
-            scenario_label = "DEVICE_COMPROMISE"
-        else:
-            scenario_label = "NORMAL"
-
-        experiment_visualizer.record(
-            round_number=round_number,
-            device=device,
-            data=data,
-            behavior_score=behavior_score,
-            context_score=context_score,
-            history_score=history_score,
-            risk_score=risk_score,
-            trust_score=trust_score,
-            rcf=rcf,
-            resource_pressure=resource_pressure,
-            adaptive_weights=adaptive_weight_result,
-            decision_result=decision_result,
-            scenario_label=scenario_label,
-        )
 
         print(
 
@@ -2203,61 +2128,37 @@ for round_number in range(
 
 
 
-        detected_attack = (
-
-
-
-            decision in [
-
-
-
-                "DENY",
-
-
-
-                "RESTRICT"
-
-            ]
-
-
-
-            or
-
-
-
-            risk_score >= 0.60
-
-
-
-            or
-
-
-
-            behavior_score < 0.40
-
-
-
-            or
-
-
-
-            context_score < 0.40
-
+        detected_attack = bool(
+            device_attack_result["confirmed_attack"]
+            or device_attack_result["anomaly_detected"]
+            or decision == "DENY"
+            or risk_score >= 0.60
+            or behavior_score < 0.40
+            or context_score < 0.40
         )
 
+        print("[21] Attack/anomaly detected:", detected_attack)
 
-
-        print(
-
-
-
-            "[21] Attack detected:",
-
-
-
-            detected_attack
-
+        # Diagnostic trends only: live observations have no independent attack
+        # labels, so do not label them NORMAL/ATTACK or derive precision/recall.
+        visualizer.record(
+            round_number=round_number,
+            device=device,
+            data=data,
+            behavior_score=behavior_score,
+            context_score=context_score,
+            history_score=history_score,
+            risk_score=risk_score,
+            trust_score=trust_score,
+            rcf=rcf,
+            resource_pressure=resource_pressure,
+            adaptive_weights=adaptive_weight_result,
+            decision_result=decision_result,
+            scenario_label="LIVE_UNLABELLED",
         )
+        # Persist and refresh plots from actual recorded output after every
+        # processed device round, so the visible files track the live run.
+        visualizer.save_and_plot()
 
 
 
@@ -2275,45 +2176,8 @@ for round_number in range(
 
 
 
-        metrics.add_record(
-
-
-
-            device_id=device_id,
-
-
-
-            round_number=round_number,
-
-
-
-            ground_truth_attack=compromised,
-
-
-
-            detected_attack=detected_attack,
-
-
-
-            decision=decision,
-
-
-
-            trust_score=trust_score,
-
-
-
-            risk_score=risk_score,
-
-
-
-            behavior_score=behavior_score,
-
-
-
-            context_score=context_score
-
-        )
+        # No independent attack ground-truth labels exist in live-only mode.
+        # Do not manufacture TP/TN/FP/FN values from the detector output.
 
 
 
@@ -2321,7 +2185,7 @@ for round_number in range(
 
 
 
-            "[22] Security evaluation record stored."
+            "[22] Live observation processed; independent ground-truth metrics unavailable."
 
         )
 
@@ -3389,69 +3253,19 @@ for round_number in range(
 
         # ====================================================
 
-        # 32. DISPLAY LIGHTWEIGHT CRYPTOGRAPHY
+        # 32. DISPLAY DEVICE-ORIGIN HMAC VERIFICATION
 
-        # ====================================================
-
-
-
+        # The MQTT adapter verifies the signature supplied by the device.
+        # Do not generate a new gateway-side signature for a received payload.
         print("\n")
-
-
-
+        print("[DEVICE-ORIGIN HMAC VERIFICATION]")
+        print("Authentication Verified :", device_hmac_valid is True)
+        print("Integrity Status        :", data.get("integrity_status", "UNVERIFIED"))
         print(
-
-
-
-            "[LIGHTWEIGHT CRYPTOGRAPHY]"
-
+            "Device HMAC Signature  :",
+            raw_device_payload.get("message_signature", "NOT PROVIDED"),
         )
 
-
-
-        print(
-
-
-
-            "Authentication       :",
-
-
-
-            crypto_result[
-
-
-
-                "authenticated"
-
-            ]
-
-        )
-
-
-
-        print(
-
-
-
-            "HMAC Generated       :",
-
-
-
-            crypto_result[
-
-
-
-                "signature"
-
-            ]
-
-        )
-
-
-
-
-
-        # ====================================================
 
         # 33. DISPLAY BASIC TRUST MANAGER
 
@@ -3829,11 +3643,9 @@ for round_number in range(
 
 
 
-    if round_number < TOTAL_ROUNDS:
+    print("[ROUND DELAY] Pausing 10 seconds so this round's values remain visible...")
 
-
-
-        time.sleep(2)
+    time.sleep(10)
 
 
 
@@ -3841,8 +3653,11 @@ for round_number in range(
 
 # ============================================================
 
-# Save round-level CSV and plots after the simulation rounds.
-experiment_visualizer.save_and_plot()
+# SAVE LIVE DIAGNOSTIC PLOTS
+# ============================================================
+
+print("\n[PLOTS] Saving round-by-round diagnostic plots (live data is unlabelled)...")
+visualizer.save_and_plot()
 
 
 # CONTROLLED RECOVERY EXPERIMENT
@@ -3917,13 +3732,13 @@ print(
 
 
 
-RECOVERY_DEVICE = ATTACKED_DEVICE
+RECOVERY_DEVICE = isolated_devices[0] if isolated_devices else None
 
 
 
 
 
-if gateway.is_device_isolated(
+if RECOVERY_DEVICE is not None and gateway.is_device_isolated(
 
 
 
@@ -3975,13 +3790,13 @@ if gateway.is_device_isolated(
 
     #
 
-    # These values represent measurements obtained after
+    # These are synthetic demonstration inputs for the recovery
 
-    # remediation in the current simulation.
+    # manager, NOT live post-remediation measurements and NOT
 
-    #
+    # attack ground truth. Replace them with measured values before
 
-    # They are NOT attack ground truth.
+    # using recovery outcomes as experimental results.
 
     # --------------------------------------------------------
 
@@ -4371,7 +4186,7 @@ else:
 
 
 
-metrics.display_metrics()
+print("\n[METRICS] Detection-quality metrics (precision/recall/FPR/FNR) are not computed in live-only mode because no independent attack ground-truth labels are supplied.")
 
 
 
@@ -4943,13 +4758,7 @@ print("=" * 80)
 
 
 
-attack_history = (
-
-
-
-    attack_simulator.get_attack_history()
-
-)
+attack_history = device_attack_detector.get_incidents()
 
 
 
@@ -4963,7 +4772,7 @@ if len(attack_history) == 0:
 
 
 
-        "No attacks were recorded."
+        "No device attack indicators were recorded."
 
     )
 
@@ -5279,7 +5088,7 @@ print(
 
 
 
-    "8. Lightweight HMAC Authentication"
+    "8. Device-origin HMAC-SHA256 verification over raw MQTT payload"
 
 )
 
@@ -5289,7 +5098,7 @@ print(
 
 
 
-    "9. Compromised Device Detection"
+    "9. Device-specific telemetry anomaly checks"
 
 )
 
@@ -5299,7 +5108,7 @@ print(
 
 
 
-    "10. Message Tampering Detection"
+    "10. Device-origin HMAC and signed timestamp verification enabled in firmware"
 
 )
 
