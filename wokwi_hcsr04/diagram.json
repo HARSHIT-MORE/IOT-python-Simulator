@@ -1,0 +1,101 @@
+{
+  "version": 1,
+  "author": "Harshit More",
+  "editor": "wokwi",
+  "parts": [
+    {
+      "type": "board-esp32-devkit-c-v4",
+      "id": "esp",
+      "top": 0,
+      "left": 0,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-dht22",
+      "id": "dht1",
+      "top": -9.3,
+      "left": -149.4,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-hc-sr04",
+      "id": "hc1",
+      "top": -72.8,
+      "left": -266.58,
+      "attrs": {
+        "distance": "100"
+      }
+    }
+  ],
+  "connections": [
+    [
+      "esp:TX",
+      "$serialMonitor:RX",
+      "",
+      []
+    ],
+    [
+      "esp:RX",
+      "$serialMonitor:TX",
+      "",
+      []
+    ],
+    [
+      "dht1:VCC",
+      "esp:3V3",
+      "red",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "dht1:SDA",
+      "esp:15",
+      "green",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "dht1:GND",
+      "esp:GND.2",
+      "black",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "hc1:VCC",
+      "esp:5V",
+      "red",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "hc1:TRIG",
+      "esp:18",
+      "green",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "hc1:ECHO",
+      "esp:19",
+      "blue",
+      [
+        "v0"
+      ]
+    ],
+    [
+      "hc1:GND",
+      "esp:GND.3",
+      "black",
+      [
+        "v0"
+      ]
+    ]
+  ],
+  "dependencies": {}
+}

@@ -1,0 +1,31 @@
+{
+    "evidence_id": "074f3a5e-2f13-488d-9c25-182be6c5cb8a",
+    "timestamp": 1792170954.214546,
+    "device_id": "CAMERA_001",
+    "event": {
+        "event_type": "AUTHENTICATION_FAILURE",
+        "device_type": "camera",
+        "status": "normal",
+        "malicious_activity": false,
+        "unexpected_network": false,
+        "unauthorized_command": false,
+        "tampered": false,
+        "attack_type": "MESSAGE_TAMPERING",
+        "attack_description": "Invalid HMAC or message tampering detected",
+        "behavior_score": 0.0,
+        "context_score": 0.0,
+        "risk_score": 0.095,
+        "probability_of_compromise": 0.17,
+        "impact": 0.56,
+        "adaptive_trust_score": 0.939,
+        "decision": "DENY",
+        "security_action": "BLOCK_REQUEST",
+        "rcf": 0.75,
+        "resource_pressure": 0.584
+    },
+    "trust_score": 0.939,
+    "risk_score": null,
+    "resource_state": null,
+    "device_state": null,
+    "evidence_hash": "2fdb7e28fbc5d19cf777cb0608990bfe26fc3613fda9a082233cc4dc74e26f9f"
+}

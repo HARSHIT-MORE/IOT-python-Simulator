@@ -1,0 +1,2 @@
+{"device_id": "CAMERA_001", "event": "HMAC authentication failure", "trust_score": 0.877, "timestamp": "2026-09-17 23:23:19"}
+{"evidence_type": "SECURITY_EVENT", "device_id": "CAMERA_001", "timestamp": "2026-09-18 16:45:05", "event": "HMAC authentication failure", "trust_score": 0.877, "previous_evidence_hash": null, "evidence_hash": "b88a7ab277e43d3c95c1e3f1d6706ff774b5030987ca0c266a233a2b80d20d7d"}

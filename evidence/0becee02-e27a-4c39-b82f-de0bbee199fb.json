@@ -1,0 +1,31 @@
+{
+    "evidence_id": "0becee02-e27a-4c39-b82f-de0bbee199fb",
+    "timestamp": 1792170932.0494175,
+    "device_id": "TEMP_001",
+    "event": {
+        "event_type": "AUTHENTICATION_FAILURE",
+        "device_type": "temperature_sensor",
+        "status": "normal",
+        "malicious_activity": false,
+        "unexpected_network": false,
+        "unauthorized_command": false,
+        "tampered": false,
+        "attack_type": "MESSAGE_TAMPERING",
+        "attack_description": "Invalid HMAC or message tampering detected",
+        "behavior_score": 0.0,
+        "context_score": 0.0,
+        "risk_score": 0.039,
+        "probability_of_compromise": 0.195,
+        "impact": 0.2,
+        "adaptive_trust_score": 0.764,
+        "decision": "DENY",
+        "security_action": "BLOCK_REQUEST",
+        "rcf": 0.375,
+        "resource_pressure": 0.614
+    },
+    "trust_score": 0.764,
+    "risk_score": null,
+    "resource_state": null,
+    "device_state": null,
+    "evidence_hash": "466828b5e5d2fe0ce60e84d3ae9ac96c9bb53aaf0fca45f09fed23ca4b7f6c9e"
+}

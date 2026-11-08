@@ -6,6 +6,7 @@ The optional scenario label is stored only for post-run visualization/evaluation
 from __future__ import annotations
 
 import csv
+import json
 import os
 from collections.abc import Mapping
 from typing import Any
@@ -18,6 +19,9 @@ FIELDS = [
     "behavior_weight", "context_weight", "history_weight", "risk_weight",
     "evidence_strength", "behavior_penalty_observed", "context_penalty_observed",
     "history_penalty_observed", "risk_elevation_observed", "decision", "security_action",
+    "observation_timestamp", "source", "temperature", "humidity", "motion_detected", "distance_cm",
+    "hour", "minute", "second", "fps", "image_size_bytes", "raw_payload",
+    "detection_result", "integrity_status", "device_hmac_valid", "adaptive_weights",
 ]
 
 
@@ -106,6 +110,25 @@ class ExperimentVisualizer:
             "risk_elevation_observed": _number(risk_score),
             "decision": decision_result.get("decision", "UNKNOWN"),
             "security_action": decision_result.get("security_action", "UNKNOWN"),
+            "observation_timestamp": data.get("timestamp") or data.get("_received_at_epoch"),
+            "source": data.get("source"),
+            "temperature": data.get("temperature"),
+            "humidity": data.get("humidity"),
+            "motion_detected": data.get("motion_detected"),
+            "distance_cm": data.get("distance_cm"),
+            "hour": data.get("hour"),
+            "minute": data.get("minute"),
+            "second": data.get("second"),
+            "fps": data.get("fps"),
+            "image_size_bytes": data.get("image_size_bytes"),
+            "raw_payload": data.get("raw_payload"),
+            "detection_result": json.dumps(
+                data.get("device_attack_result", data.get("device_attack_indicators", [])),
+                sort_keys=True, default=str,
+            ),
+            "integrity_status": data.get("integrity_status", "UNVERIFIED"),
+            "device_hmac_valid": data.get("device_hmac_valid"),
+            "adaptive_weights": json.dumps(adaptive_weights, sort_keys=True, default=str),
         })
 
     def save_and_plot(self) -> dict[str, str]:
@@ -124,7 +147,6 @@ class ExperimentVisualizer:
             import matplotlib
             matplotlib.use("Agg")
             import matplotlib.pyplot as plt
-            import numpy as np
         except ImportError as exc:
             print(f"[VISUALIZER] matplotlib/numpy unavailable; CSV saved. {exc}")
             return {"csv": csv_path}
@@ -139,77 +161,26 @@ class ExperimentVisualizer:
             plt.close(fig)
             paths[name] = path
 
-        # 1. Component scores and trust/risk, one line per device.
-        fig, axes = plt.subplots(2, 1, figsize=(12, 9), sharex=True)
+        # One trust trajectory per device, using the recorded per-round values.
+        fig, ax = plt.subplots(figsize=(11, 6))
         for device_id in device_ids:
-            subset = sorted((r for r in self.rows if str(r["device_id"]) == device_id), key=lambda r: r["round"])
-            rounds = [r["round"] for r in subset]
-            for key, label in (("behavior_score", "Behavior"), ("context_score", "Context"), ("history_score", "History")):
-                axes[0].plot(rounds, [r[key] for r in subset], marker="o", linewidth=1.5, label=f"{device_id} · {label}")
-            axes[1].plot(rounds, [r["trust_score"] for r in subset], marker="o", label=f"{device_id} · Trust")
-            axes[1].plot(rounds, [r["risk_score"] for r in subset], linestyle="--", label=f"{device_id} · Risk")
-        axes[0].set_title("Component scores by device and round")
-        axes[0].set_ylabel("Score (0–1)")
-        axes[1].set_title("Trust and risk trajectory")
-        axes[1].set_ylabel("Score (0–1)")
-        axes[1].set_xlabel("Simulation round")
-        for ax in axes:
-            ax.set_ylim(-0.03, 1.03)
-            ax.grid(True, alpha=0.25)
-            ax.legend(fontsize=7, ncol=2)
-        save(fig, "component_trust_risk.png")
-
-        # 2. Adaptive weights over rounds for each device.
-        fig, ax = plt.subplots(figsize=(12, 6))
-        for device_id in device_ids:
-            subset = sorted((r for r in self.rows if str(r["device_id"]) == device_id), key=lambda r: r["round"])
-            for key, label in (("behavior_weight", "Behavior"), ("context_weight", "Context"), ("history_weight", "History"), ("risk_weight", "Risk")):
-                vals = [r[key] for r in subset]
-                if any(v != 0 for v in vals):
-                    ax.plot([r["round"] for r in subset], vals, marker=".", label=f"{device_id} · {label}")
-        ax.set_title("Adaptive component weights by round")
+            subset = sorted(
+                (row for row in self.rows if str(row["device_id"]) == device_id),
+                key=lambda row: row["round"],
+            )
+            ax.plot(
+                [row["round"] for row in subset],
+                [row["trust_score"] for row in subset],
+                marker="o", linewidth=1.8, label=device_id,
+            )
+        ax.set_title("Trust score by device per round")
         ax.set_xlabel("Simulation round")
-        ax.set_ylabel("Weight")
+        ax.set_ylabel("Trust score (0–1)")
+        ax.set_ylim(-0.03, 1.03)
+        ax.set_xticks(sorted({row["round"] for row in self.rows}))
         ax.grid(True, alpha=0.25)
-        ax.legend(fontsize=7, ncol=2)
-        save(fig, "adaptive_weights.png")
-
-        # 3. Resource capability and pressure versus trust.
-        fig, axes = plt.subplots(2, 1, figsize=(12, 8), sharex=True)
-        for device_id in device_ids:
-            subset = sorted((r for r in self.rows if str(r["device_id"]) == device_id), key=lambda r: r["round"])
-            rounds = [r["round"] for r in subset]
-            axes[0].plot(rounds, [r["resource_capability"] for r in subset], marker="o", label=device_id)
-            axes[1].plot(rounds, [r["resource_pressure"] for r in subset], marker="o", label=f"{device_id} · Pressure")
-            axes[1].plot(rounds, [r["trust_score"] for r in subset], linestyle="--", label=f"{device_id} · Trust")
-        axes[0].set_title("Resource capability")
-        axes[0].set_ylabel("RCF (0–1)")
-        axes[1].set_title("Resource pressure and trust")
-        axes[1].set_ylabel("Score (0–1)")
-        axes[1].set_xlabel("Simulation round")
-        for ax in axes:
-            ax.set_ylim(-0.03, 1.03)
-            ax.grid(True, alpha=0.25)
-            ax.legend(fontsize=8, ncol=2)
-        save(fig, "resource_pressure_trust.png")
-
-        # 4. Attack/scenario-to-component observed penalty heatmap (evaluation only).
-        labels = sorted({str(r["scenario_label"]) for r in self.rows})
-        components = ["behavior_penalty_observed", "context_penalty_observed", "history_penalty_observed", "risk_elevation_observed"]
-        matrix = []
-        for label in labels:
-            selected = [r for r in self.rows if str(r["scenario_label"]) == label]
-            matrix.append([float(np.mean([r[key] for r in selected])) for key in components])
-        fig, ax = plt.subplots(figsize=(9, max(3.5, len(labels) * 0.7)))
-        image = ax.imshow(np.asarray(matrix), aspect="auto", vmin=0, vmax=1)
-        ax.set_xticks(range(len(components)), ["Behavior deficit", "Context deficit", "History deficit", "Risk level"])
-        ax.set_yticks(range(len(labels)), labels)
-        ax.set_title("Observed component changes by scenario (diagnostic, not causal proof)")
-        for i, row in enumerate(matrix):
-            for j, value in enumerate(row):
-                ax.text(j, i, f"{value:.2f}", ha="center", va="center", fontsize=9)
-        fig.colorbar(image, ax=ax, label="Mean score / deficit (0–1)")
-        save(fig, "scenario_component_heatmap.png")
+        ax.legend(title="Device")
+        save(fig, "trust_score_by_device.png")
 
         print("\n[VISUALIZER] Saved experiment outputs:")
         for name, path in paths.items():

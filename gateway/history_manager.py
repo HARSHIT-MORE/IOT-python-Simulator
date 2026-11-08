@@ -171,13 +171,12 @@ class HistoryManager:
             device_history["forensic_incidents"] += 1
 
             # --------------------------------------------------------
-            # Determine whether this is a confirmed incident
+            # Severity and the presence of indicators describe seriousness,
+            # not certainty. Count as confirmed only when the forensic pipeline
+            # explicitly marks an attack as confirmed.
             # --------------------------------------------------------
 
-            if (
-                severity in ["MEDIUM", "HIGH"]
-                or len(indicators) > 0
-            ):
+            if forensic_result.get("confirmed_attack", False):
                 device_history["confirmed_incidents"] += 1
 
         # ============================================================

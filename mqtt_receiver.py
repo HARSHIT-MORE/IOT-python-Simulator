@@ -123,6 +123,9 @@ def on_message(
             f"{observation.get('humidity')} %"
         )
 
+    elif device_type == "ultrasonic_distance_sensor":
+        print(f"Distance     : {observation.get('distance_cm')} cm")
+
     elif device_type == "motion_sensor":
 
         print(

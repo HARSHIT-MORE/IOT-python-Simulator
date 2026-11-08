@@ -1,0 +1,31 @@
+{
+    "evidence_id": "be135fb9-71d2-4b44-9b9f-2793a92e818e",
+    "timestamp": 1789749694.71514,
+    "device_id": "CAMERA_001",
+    "event": {
+        "event_type": "AUTHENTICATION_FAILURE",
+        "device_type": "camera",
+        "status": "normal",
+        "malicious_activity": false,
+        "unexpected_network": false,
+        "unauthorized_command": false,
+        "tampered": true,
+        "attack_type": "MESSAGE_TAMPERING",
+        "attack_description": "Message modified after authentication.",
+        "behavior_score": 0.0,
+        "context_score": 0.0,
+        "risk_score": 0.095,
+        "probability_of_compromise": 0.17,
+        "impact": 0.56,
+        "adaptive_trust_score": 0.877,
+        "decision": "DENY",
+        "security_action": "BLOCK_REQUEST",
+        "rcf": 0.75,
+        "resource_pressure": 0.295
+    },
+    "trust_score": 0.877,
+    "risk_score": null,
+    "resource_state": null,
+    "device_state": null,
+    "evidence_hash": "faf73b74d492939bce728a05f33bebc4eaabb3a413303a48285f467538102de3"
+}

@@ -41,7 +41,7 @@ class RiskEngine:
         vulnerability_map = {
             "smart_clock": 0.30,
             "temperature_sensor": 0.20,
-            "motion_sensor": 0.30,
+            "ultrasonic_distance_sensor": 0.30,
             "camera": 0.60
         }
 
@@ -162,7 +162,7 @@ class RiskEngine:
         device_criticality = {
             "smart_clock": 0.30,
             "temperature_sensor": 0.20,
-            "motion_sensor": 0.40,
+            "ultrasonic_distance_sensor": 0.40,
             "camera": 0.80
         }
 

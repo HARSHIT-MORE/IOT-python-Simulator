@@ -1,0 +1,31 @@
+{
+    "evidence_id": "c23d6f74-0af1-4248-9397-8ba0021584c9",
+    "timestamp": 1792171008.372758,
+    "device_id": "MOTION_001",
+    "event": {
+        "event_type": "AUTHENTICATION_FAILURE",
+        "device_type": "motion_sensor",
+        "status": "normal",
+        "malicious_activity": false,
+        "unexpected_network": false,
+        "unauthorized_command": false,
+        "tampered": false,
+        "attack_type": "MESSAGE_TAMPERING",
+        "attack_description": "Invalid HMAC or message tampering detected",
+        "behavior_score": 0.0,
+        "context_score": 0.0,
+        "risk_score": 0.035,
+        "probability_of_compromise": 0.11,
+        "impact": 0.32,
+        "adaptive_trust_score": 0.957,
+        "decision": "DENY",
+        "security_action": "BLOCK_REQUEST",
+        "rcf": 0.425,
+        "resource_pressure": 0.327
+    },
+    "trust_score": 0.957,
+    "risk_score": null,
+    "resource_state": null,
+    "device_state": null,
+    "evidence_hash": "e90ac5d05293e50e245e2147eb110d8ee9dee3af37daa1e35231709b04523662"
+}

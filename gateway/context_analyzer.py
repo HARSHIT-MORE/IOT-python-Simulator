@@ -93,7 +93,7 @@ class ContextAnalyzer:
                 "sensor_data"
             ],
 
-            "motion_sensor": [
+            "ultrasonic_distance_sensor": [
                 "sensor_data"
             ],
 
