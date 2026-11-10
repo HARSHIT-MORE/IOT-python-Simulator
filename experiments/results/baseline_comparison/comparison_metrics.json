@@ -1,0 +1,68 @@
+{
+  "protocol": {
+    "name": "Controlled sensor replay, detector and trust-weight ablation",
+    "replay_runs": 1,
+    "device_types": [
+      "temperature_sensor",
+      "ultrasonic_distance_sensor"
+    ],
+    "unique_readings_per_device": 75,
+    "random_seed": 20261109,
+    "samples": 150,
+    "attack_samples": 22,
+    "normal_samples": 128,
+    "label_usage": "Labels are evaluation-only metadata. They are not passed to the detector or trust calculations.",
+    "trust_inputs": "Static weights use fixed-threshold behavior evidence; adaptive weights use DeviceAttackDetector behavior evidence. Context/history held at 1.0; risk is each pipeline's observed behavior penalty.",
+    "limits": "Synthetic controlled profiles for temperature and distance only. This does not establish live Wokwi performance, full-system resource savings, or generalization to real deployments."
+  },
+  "resource_cost_microbenchmark": {
+    "fixed_threshold_static_weights": {
+      "timing_repeats": 100,
+      "observations": 15000,
+      "wall_ms_per_1000_observations": 1.7047,
+      "process_cpu_ms_per_1000_observations": 1.0417,
+      "peak_traced_python_memory_bytes": 1324
+    },
+    "rate_aware_adaptive_weights": {
+      "timing_repeats": 100,
+      "observations": 15000,
+      "wall_ms_per_1000_observations": 17.6639,
+      "process_cpu_ms_per_1000_observations": 17.7083,
+      "peak_traced_python_memory_bytes": 28396
+    }
+  },
+  "detection_metrics": {
+    "fixed_step_threshold": {
+      "TP": 10,
+      "TN": 128,
+      "FP": 0,
+      "FN": 12,
+      "precision": 1.0,
+      "recall": 0.4545,
+      "f1": 0.625,
+      "false_positive_rate": 0.0
+    },
+    "device_type_and_elapsed_time_aware_detector": {
+      "TP": 22,
+      "TN": 127,
+      "FP": 1,
+      "FN": 0,
+      "precision": 0.9565,
+      "recall": 1.0,
+      "f1": 0.9778,
+      "false_positive_rate": 0.0078
+    }
+  },
+  "trust_means": {
+    "static_weights": {
+      "normal": 1.0,
+      "injected_attack": 0.9318,
+      "normal_to_attack_drop": 0.0682
+    },
+    "adaptive_weights": {
+      "normal": 0.9987,
+      "injected_attack": 0.831,
+      "normal_to_attack_drop": 0.1677
+    }
+  }
+}
